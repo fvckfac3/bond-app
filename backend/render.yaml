@@ -1,0 +1,66 @@
+# Deploy BOND Backend to Render.com (FREE)
+
+## Why Render.com?
+
+✅ **Completely free** - No credit card required  
+✅ **750 hours/month** - Enough for 24/7 if you want  
+✅ **Easiest deployment** - 1-click from GitHub  
+✅ **Automatic SSL** - HTTPS included  
+✅ **Auto-deploy on push** - Built-in CI/CD  
+
+**Note:** Free tier spins down after 15 min of inactivity (30s cold start)
+
+---
+
+## Step-by-Step Deployment
+
+### **Step 1: Create Render Account (2 mins)**
+
+1. Go to https://render.com
+2. Click "Get Started"
+3. Sign up with GitHub (recommended) or email
+4. **No credit card required!**
+5. Verify email if needed
+
+---
+
+### **Step 2: Prepare Your Code (5 mins)**
+
+Your backend is almost ready. Just need to add one file:
+
+**Create `/app/backend/render.yaml`:**
+
+```yaml
+services:
+  - type: web
+    name: bond-backend
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn server:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: EMERGENT_LLM_KEY
+        sync: false
+      - key: CORS_ORIGINS
+        value: exp://,*.expo.dev,capacitor://,http://localhost:*
+      - key: PYTHON_VERSION
+        value: 3.11.0
+```
+
+Let me create this file:
+
+<function_calls>
+<invoke name="mcp_create_file">
+<parameter name="file_text">services:
+  - type: web
+    name: bond-backend
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn server:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: EMERGENT_LLM_KEY
+        sync: false
+      - key: CORS_ORIGINS
+        value: exp://,*.expo.dev,capacitor://,http://localhost:*
+      - key: PYTHON_VERSION
+        value: 3.11.0
+    healthCheckPath: /api/status

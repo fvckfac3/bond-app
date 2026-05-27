@@ -1,0 +1,72 @@
+{
+  "expo": {
+    "name": "BOND",
+    "slug": "bond-app",
+    "version": "1.0.0",
+    "description": "A science-backed relationship wellness platform helping couples deepen their connection through validated assessments, daily check-ins, and personalized AI insights.",
+    "owner": "bond-app",
+    "privacy": "public",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#3D1A4F"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.bond.app",
+      "infoPlist": {
+        "NSCameraUsageDescription": "BOND needs camera access to take photos for your profile.",
+        "NSPhotoLibraryUsageDescription": "BOND needs photo library access to select profile pictures."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundColor": "#3D1A4F",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "package": "com.bond.app",
+      "permissions": [
+        "android.permission.RECEIVE_BOOT_COMPLETED",
+        "android.permission.VIBRATE"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-font",
+        {
+          "fonts": ["node_modules/@expo/vector-icons/build/vendor/react-native-vector-icons/Fonts/MaterialCommunityIcons.ttf"]
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#3D1A4F",
+          "sounds": [],
+          "mode": "production"
+        }
+      ]
+    ],
+    "scheme": "bond",
+    "newArchEnabled": false,
+    "updates": {
+      "fallbackToCacheTimeout": 0
+    },
+    "extra": {
+      "eas": {
+        "projectId": "update-with-your-project-id"
+      }
+    }
+  }
+}
