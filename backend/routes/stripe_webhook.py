@@ -2,6 +2,7 @@
 Stripe Webhook Handler for BOND App
 Handles subscription lifecycle events from Stripe
 """
+
 from fastapi import APIRouter, Request, HTTPException
 from pydantic import BaseModel
 from typing import Optional, Dict, Any
@@ -20,38 +21,61 @@ logger = logging.getLogger(__name__)
 STRIPE_SECRET_KEY = os.environ.get("STRIPE_API_KEY")
 STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET")
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
-SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+SUPABASE_SERVICE_ROLE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
 
 # Supabase client
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 
 # Stripe client
 stripe.api_key = STRIPE_SECRET_KEY
 
 
-# Track processed event IDs for idempotency (24hr TTL)
-class EventTracker:
-    def __init__(self):
-        self._events: Dict[str, int] = {}
-        self._ttl_ms = 24 * 60 * 60 * 1000
-
-    def is_processed(self, event_id: str) -> bool:
-        return event_id in self._events
-
-    def mark_processed(self, event_id: str) -> None:
-        self._events[event_id] = int(datetime.now(timezone.utc).timestamp() * 1000)
-        # Cleanup old events
-        now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
-        self._events = {
-            eid: ts for eid, ts in self._events.items()
-            if now_ms - ts < self._ttl_ms
-        }
+# Idempotency lives in the `webhook_events` table (event_id is UNIQUE): an event is
+# "claimed" by inserting its row before any handler runs, so duplicates are
+# rejected by Postgres even across process restarts / serverless invocations.
+PG_UNIQUE_VIOLATION = "23505"
 
 
-event_tracker = EventTracker()
+def _is_unique_violation(exc: Exception) -> bool:
+    return (
+        getattr(exc, "code", None) == PG_UNIQUE_VIOLATION
+        or PG_UNIQUE_VIOLATION in str(exc)
+        or "duplicate key" in str(exc).lower()
+    )
+
+
+def _claim_event(event: Dict[str, Any]) -> bool:
+    """Record the event; return False if it was already claimed by an earlier delivery."""
+    obj = event.get("data", {}).get("object", {})
+    try:
+        supabase.table("webhook_events").insert(
+            {
+                "event_id": event.get("id"),
+                "event_type": event.get("type"),
+                "session_id": (
+                    obj.get("id") if event.get("type", "").startswith("checkout.") else None
+                ),
+                "metadata": obj,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            }
+        ).execute()
+        return True
+    except Exception as e:
+        if _is_unique_violation(e):
+            return False
+        raise
+
+
+def _release_event(event_id: str) -> None:
+    """Un-claim an event whose handler failed, so a later redelivery can reprocess it."""
+    try:
+        supabase.table("webhook_events").delete().eq("event_id", event_id).execute()
+    except Exception as e:
+        logger.error(f"Failed to release webhook event {event_id}: {e}")
 
 
 # ---- Webhook Handler ----
+
 
 @router.post("/stripe")
 async def handle_stripe_webhook(request: Request):
@@ -71,9 +95,7 @@ async def handle_stripe_webhook(request: Request):
 
     # Verify and parse the event
     try:
-        event = stripe.Webhook.construct_event(
-            body, signature, STRIPE_WEBHOOK_SECRET
-        )
+        event = stripe.Webhook.construct_event(body, signature, STRIPE_WEBHOOK_SECRET)
     except stripe.error.SignatureVerificationError as e:
         logger.error(f"Signature verification failed: {e}")
         raise HTTPException(status_code=400, detail="Invalid signature")
@@ -81,9 +103,15 @@ async def handle_stripe_webhook(request: Request):
         logger.error(f"Failed to parse webhook payload: {e}")
         raise HTTPException(status_code=400, detail=f"Invalid payload: {str(e)}")
 
-    # Idempotency check
+    # Idempotency: claim the event in Supabase before doing any work. A failure
+    # here (DB unavailable) is a 500 so Stripe retries the delivery.
     event_id = event.get("id")
-    if event_tracker.is_processed(event_id):
+    try:
+        claimed = _claim_event(event)
+    except Exception as e:
+        logger.error(f"Failed to record webhook event {event_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Could not record webhook event")
+    if not claimed:
         logger.info(f"Event {event_id} already processed, skipping")
         return {"received": True, "skipped": "already_processed"}
 
@@ -105,21 +133,18 @@ async def handle_stripe_webhook(request: Request):
         else:
             logger.info(f"Unhandled event type: {event_type}")
 
-        event_tracker.mark_processed(event_id)
-
-        # Log the event
-        await _log_webhook_event(event)
-
         return {"received": True, "processed": event_type}
 
     except Exception as e:
         logger.error(f"Error processing {event_type}: {str(e)}", exc_info=True)
+        _release_event(event_id)
         # Return 200 to prevent Stripe retries for application errors
         # Log for investigation but acknowledge receipt
         return {"received": True, "error": str(e)}
 
 
 # ---- Event Handlers ----
+
 
 async def _handle_checkout_completed(event: Dict[str, Any]) -> None:
     """
@@ -142,7 +167,13 @@ async def _handle_checkout_completed(event: Dict[str, Any]) -> None:
 
     # Determine plan type from price
     price_id = sub.get("items", {}).get("data", [{}])[0].get("price", {}).get("id")
-    interval = sub.get("items", {}).get("data", [{}])[0].get("price", {}).get("recurring", {}).get("interval", "month")
+    interval = (
+        sub.get("items", {})
+        .get("data", [{}])[0]
+        .get("price", {})
+        .get("recurring", {})
+        .get("interval", "month")
+    )
     plan_type = "premium_monthly" if interval == "month" else "premium_annual"
 
     # Calculate period dates
@@ -164,22 +195,34 @@ async def _handle_checkout_completed(event: Dict[str, Any]) -> None:
         "trial_end": trial_end.isoformat() if trial_end else None,
         "current_period_start": current_period_start.isoformat(),
         "current_period_end": current_period_end.isoformat(),
-        "updated_at": datetime.now(timezone.utc).isoformat()
+        "updated_at": datetime.now(timezone.utc).isoformat(),
     }
 
     # Find existing subscription by stripe_subscription_id or user_id
-    existing = supabase.table("subscriptions").select("id, user_id").eq("stripe_subscription_id", subscription_id).execute()
+    existing = (
+        supabase.table("subscriptions")
+        .select("id, user_id")
+        .eq("stripe_subscription_id", subscription_id)
+        .execute()
+    )
 
     if existing.data:
         # Update existing subscription
-        supabase.table("subscriptions").update(subscription_record).eq("id", existing.data[0]["id"]).execute()
+        supabase.table("subscriptions").update(subscription_record).eq(
+            "id", existing.data[0]["id"]
+        ).execute()
         user_id = existing.data[0].get("user_id") or user_id
         logger.info(f"Updated subscription {subscription_id} for user {user_id}")
     else:
         # Need user_id - look up by customer_id or use the passed reference
         if not user_id:
             # Try to find by stripe customer id in users table or previous subs
-            customer_sub = supabase.table("subscriptions").select("user_id").eq("stripe_customer_id", customer_id).execute()
+            customer_sub = (
+                supabase.table("subscriptions")
+                .select("user_id")
+                .eq("stripe_customer_id", customer_id)
+                .execute()
+            )
             if customer_sub.data:
                 user_id = customer_sub.data[0].get("user_id")
 
@@ -198,12 +241,14 @@ async def _handle_checkout_completed(event: Dict[str, Any]) -> None:
     # Update payment transaction if exists
     session_id = session.get("id")
     if session_id:
-        supabase.table("payment_transactions").update({
-            "payment_status": "paid",
-            "status": "completed",
-            "subscription_id": subscription_id,
-            "updated_at": datetime.now(timezone.utc).isoformat()
-        }).eq("session_id", session_id).execute()
+        supabase.table("payment_transactions").update(
+            {
+                "payment_status": "paid",
+                "status": "completed",
+                "subscription_id": subscription_id,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }
+        ).eq("session_id", session_id).execute()
 
 
 async def _handle_subscription_updated(event: Dict[str, Any]) -> None:
@@ -220,13 +265,21 @@ async def _handle_subscription_updated(event: Dict[str, Any]) -> None:
 
     # Get price and interval
     price_id = sub.get("items", {}).get("data", [{}])[0].get("price", {}).get("id")
-    interval = sub.get("items", {}).get("data", [{}])[0].get("price", {}).get("recurring", {}).get("interval", "month")
+    interval = (
+        sub.get("items", {})
+        .get("data", [{}])[0]
+        .get("price", {})
+        .get("recurring", {})
+        .get("interval", "month")
+    )
     plan_type = "premium_monthly" if interval == "month" else "premium_annual"
 
     current_period_start = datetime.fromtimestamp(sub.get("current_period_start"), tz=timezone.utc)
     current_period_end = datetime.fromtimestamp(sub.get("current_period_end"), tz=timezone.utc)
 
-    is_trial = sub.get("trial_end") is not None and datetime.fromtimestamp(sub.get("trial_end"), tz=timezone.utc) > datetime.now(timezone.utc)
+    is_trial = sub.get("trial_end") is not None and datetime.fromtimestamp(
+        sub.get("trial_end"), tz=timezone.utc
+    ) > datetime.now(timezone.utc)
     trial_end = datetime.fromtimestamp(sub.get("trial_end"), tz=timezone.utc) if is_trial else None
 
     update_data = {
@@ -237,14 +290,21 @@ async def _handle_subscription_updated(event: Dict[str, Any]) -> None:
         "trial_end": trial_end.isoformat() if trial_end else None,
         "current_period_start": current_period_start.isoformat(),
         "current_period_end": current_period_end.isoformat(),
-        "updated_at": datetime.now(timezone.utc).isoformat()
+        "updated_at": datetime.now(timezone.utc).isoformat(),
     }
 
     # If cancelled or expired, set ends_at
     if status in ("canceled", "expired"):
-        update_data["ended_at"] = datetime.fromtimestamp(sub.get("ended_at", sub.get("current_period_end")), tz=timezone.utc).isoformat()
+        update_data["ended_at"] = datetime.fromtimestamp(
+            sub.get("ended_at", sub.get("current_period_end")), tz=timezone.utc
+        ).isoformat()
 
-    result = supabase.table("subscriptions").update(update_data).eq("stripe_subscription_id", subscription_id).execute()
+    result = (
+        supabase.table("subscriptions")
+        .update(update_data)
+        .eq("stripe_subscription_id", subscription_id)
+        .execute()
+    )
 
     if result.data:
         logger.info(f"Updated subscription {subscription_id}: status={status}")
@@ -264,14 +324,14 @@ async def _handle_subscription_deleted(event: Dict[str, Any]) -> None:
 
     now = datetime.now(timezone.utc).isoformat()
 
-    update_data = {
-        "status": "canceled",
-        "ended_at": now,
-        "canceled_at": now,
-        "updated_at": now
-    }
+    update_data = {"status": "canceled", "ended_at": now, "canceled_at": now, "updated_at": now}
 
-    result = supabase.table("subscriptions").update(update_data).eq("stripe_subscription_id", subscription_id).execute()
+    result = (
+        supabase.table("subscriptions")
+        .update(update_data)
+        .eq("stripe_subscription_id", subscription_id)
+        .execute()
+    )
 
     if result.data:
         logger.info(f"Cancelled subscription {subscription_id}")
@@ -294,7 +354,9 @@ async def _handle_invoice_payment_succeeded(event: Dict[str, Any]) -> None:
     # Get period dates from the subscription
     try:
         sub = stripe.Subscription.retrieve(subscription_id)
-        current_period_start = datetime.fromtimestamp(sub.get("current_period_start"), tz=timezone.utc)
+        current_period_start = datetime.fromtimestamp(
+            sub.get("current_period_start"), tz=timezone.utc
+        )
         current_period_end = datetime.fromtimestamp(sub.get("current_period_end"), tz=timezone.utc)
     except Exception as e:
         logger.error(f"Failed to retrieve subscription {subscription_id}: {e}")
@@ -305,13 +367,20 @@ async def _handle_invoice_payment_succeeded(event: Dict[str, Any]) -> None:
         "current_period_start": current_period_start.isoformat(),
         "current_period_end": current_period_end.isoformat(),
         "last_payment_at": datetime.now(timezone.utc).isoformat(),
-        "updated_at": datetime.now(timezone.utc).isoformat()
+        "updated_at": datetime.now(timezone.utc).isoformat(),
     }
 
-    result = supabase.table("subscriptions").update(update_data).eq("stripe_subscription_id", subscription_id).execute()
+    result = (
+        supabase.table("subscriptions")
+        .update(update_data)
+        .eq("stripe_subscription_id", subscription_id)
+        .execute()
+    )
 
     if result.data:
-        logger.info(f"Extended subscription {subscription_id} until {current_period_end.isoformat()}")
+        logger.info(
+            f"Extended subscription {subscription_id} until {current_period_end.isoformat()}"
+        )
     else:
         logger.warning(f"invoice.payment_succeeded but no local record for {subscription_id}")
 
@@ -337,32 +406,42 @@ async def _handle_invoice_payment_failed(event: Dict[str, Any]) -> None:
         "payment_failed_at": now,
         "payment_attempts": attempt_count,
         "amount_last_failed": amount_due / 100,  # Convert from cents
-        "updated_at": now
+        "updated_at": now,
     }
 
-    result = supabase.table("subscriptions").update(update_data).eq("stripe_subscription_id", subscription_id).execute()
+    result = (
+        supabase.table("subscriptions")
+        .update(update_data)
+        .eq("stripe_subscription_id", subscription_id)
+        .execute()
+    )
 
     if result.data:
-        logger.warning(f"Payment failed for subscription {subscription_id}, amount=${amount_due/100}, attempt={attempt_count}")
+        logger.warning(
+            f"Payment failed for subscription {subscription_id}, amount=${amount_due/100}, attempt={attempt_count}"
+        )
     else:
         logger.warning(f"invoice.payment_failed but no local record for {subscription_id}")
 
     # Also log the failed payment event
     try:
-        supabase.table("payment_failures").insert({
-            "stripe_subscription_id": subscription_id,
-            "stripe_customer_id": customer_id,
-            "invoice_id": invoice.get("id"),
-            "amount_due": amount_due / 100,
-            "currency": invoice.get("currency", "usd"),
-            "attempt_count": attempt_count,
-            "created_at": now
-        }).execute()
+        supabase.table("payment_failures").insert(
+            {
+                "stripe_subscription_id": subscription_id,
+                "stripe_customer_id": customer_id,
+                "invoice_id": invoice.get("id"),
+                "amount_due": amount_due / 100,
+                "currency": invoice.get("currency", "usd"),
+                "attempt_count": attempt_count,
+                "created_at": now,
+            }
+        ).execute()
     except Exception as e:
         logger.error(f"Failed to log payment failure: {e}")
 
 
 # ---- Helpers ----
+
 
 def _map_stripe_status(status: str) -> str:
     """Map Stripe subscription status to our status enum."""
@@ -377,18 +456,3 @@ def _map_stripe_status(status: str) -> str:
         "paused": "paused",
     }
     return mapping.get(status, status)
-
-
-async def _log_webhook_event(event: Dict[str, Any]) -> None:
-    """Log all webhook events for debugging."""
-    try:
-        supabase.table("webhook_events").insert({
-            "event_id": event.get("id"),
-            "event_type": event.get("type"),
-            "stripe_customer_id": event.get("data", {}).get("object", {}).get("customer"),
-            "stripe_subscription_id": event.get("data", {}).get("object", {}).get("subscription"),
-            "payload": event.get("data", {}).get("object", {}),
-            "created_at": datetime.now(timezone.utc).isoformat()
-        }).execute()
-    except Exception as e:
-        logger.error(f"Failed to log webhook event: {e}")

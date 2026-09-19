@@ -13,7 +13,7 @@ router = APIRouter(prefix="/api/analyzers", tags=["analyzers"])
 
 # Supabase connection
 supabase_url = os.environ.get('SUPABASE_URL', '')
-supabase_key = os.environ.get('SUPABASE_SERVICE_KEY', '')
+supabase_key = os.environ.get('SUPABASE_SERVICE_ROLE_KEY', '')
 
 def get_supabase():
     """Get Supabase client."""

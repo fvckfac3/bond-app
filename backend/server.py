@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field, ConfigDict
 from typing import List, Dict, Any
 import uuid
 from datetime import datetime, timezone
-from supabase import create_client, AsyncSupabaseClient
+from supabase import create_client, Client
 from services.ai_insights import ai_insights_generator
 from routes.payments import router as payments_router
 from routes.analyzers import router as analyzers_router
@@ -21,8 +21,8 @@ load_dotenv(ROOT_DIR / '.env')
 
 # Supabase connection
 supabase_url = os.environ['SUPABASE_URL']
-supabase_key = os.environ['SUPABASE_SERVICE_KEY']
-supabase: AsyncSupabaseClient = create_client(supabase_url, supabase_key)
+supabase_key = os.environ['SUPABASE_SERVICE_ROLE_KEY']
+supabase: Client = create_client(supabase_url, supabase_key)
 
 # Create the main app without a prefix
 app = FastAPI()
@@ -52,11 +52,11 @@ async def create_status_check(input: StatusCheckCreate):
     status_dict = input.model_dump()
     status_obj = StatusCheck(**status_dict)
     
-    # Convert to dict and serialize datetime to ISO string for MongoDB
+    # Serialize datetime to an ISO string for the Supabase insert
     doc = status_obj.model_dump()
     doc['timestamp'] = doc['timestamp'].isoformat()
     
-    _ = await db.status_checks.insert_one(doc)
+    supabase.table('status_checks').insert(doc).execute()
     return status_obj
 
 @api_router.get("/status", response_model=List[StatusCheck])
@@ -64,7 +64,7 @@ async def get_status_checks(skip: int = 0, limit: int = 100):
     """Get status checks with pagination"""
     if limit > 1000:
         limit = 1000
-    result = await supabase.table('status_checks').select("*").range(skip, skip + limit - 1)
+    result = supabase.table('status_checks').select("*").range(skip, skip + limit - 1).execute()
     return result.data or []
 
 # AI Insights Generation Endpoint
