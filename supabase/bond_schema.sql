@@ -765,3 +765,76 @@ $$;
 
 REVOKE ALL ON FUNCTION get_couple_subscription() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION get_couple_subscription() TO authenticated;
+
+-- ============================================================
+-- MESSAGING, ACTIVITY COMPLETION, COUPLE ACCESS
+-- `messages` previously existed only in schema_phase2.sql, and
+-- `activity_completions` lacked the columns the app writes. Idempotent.
+-- ============================================================
+
+-- SECURITY DEFINER so policies don't depend on RLS of couple_units itself.
+CREATE OR REPLACE FUNCTION is_couple_member(cu_id UUID)
+RETURNS BOOLEAN
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM couple_units cu
+    WHERE cu.id = cu_id AND auth.uid() IN (cu.user1_id, cu.user2_id)
+  )
+$$;
+REVOKE ALL ON FUNCTION is_couple_member(UUID) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION is_couple_member(UUID) TO authenticated;
+
+DROP POLICY IF EXISTS p_couple_units_select ON couple_units;
+CREATE POLICY p_couple_units_select ON couple_units
+  FOR SELECT USING (auth.uid() IN (user1_id, user2_id));
+
+CREATE TABLE IF NOT EXISTS messages (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  couple_unit_id UUID NOT NULL REFERENCES couple_units(id) ON DELETE CASCADE,
+  sender_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  message_text TEXT NOT NULL,
+  message_type TEXT DEFAULT 'text',
+  read_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_messages_couple ON messages(couple_unit_id, created_at DESC);
+ALTER TABLE messages ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS p_messages_select ON messages;
+CREATE POLICY p_messages_select ON messages
+  FOR SELECT USING (is_couple_member(couple_unit_id));
+DROP POLICY IF EXISTS p_messages_insert ON messages;
+CREATE POLICY p_messages_insert ON messages
+  FOR INSERT WITH CHECK (auth.uid() = sender_id AND is_couple_member(couple_unit_id));
+-- Only the recipient (not the sender) may update, i.e. mark as read.
+DROP POLICY IF EXISTS p_messages_update ON messages;
+CREATE POLICY p_messages_update ON messages
+  FOR UPDATE USING (is_couple_member(couple_unit_id) AND sender_id <> auth.uid());
+
+-- Supabase Realtime only streams tables in this publication.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables
+    WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'messages'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE messages;
+  END IF;
+END $$;
+
+ALTER TABLE activity_completions ADD COLUMN IF NOT EXISTS response JSONB;
+ALTER TABLE activity_completions ADD COLUMN IF NOT EXISTS shared_with_partner BOOLEAN DEFAULT FALSE;
+
+-- Own completions always; a partner's only when they chose to share.
+DROP POLICY IF EXISTS p_activity_completions_select ON activity_completions;
+CREATE POLICY p_activity_completions_select ON activity_completions
+  FOR SELECT USING (
+    auth.uid() = user_id
+    OR (shared_with_partner AND couple_unit_id IS NOT NULL AND is_couple_member(couple_unit_id))
+  );
+DROP POLICY IF EXISTS p_activity_completions_insert ON activity_completions;
+CREATE POLICY p_activity_completions_insert ON activity_completions
+  FOR INSERT WITH CHECK (
+    auth.uid() = user_id
+    AND (couple_unit_id IS NULL OR is_couple_member(couple_unit_id))
+  );

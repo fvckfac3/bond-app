@@ -4,6 +4,7 @@ import { TextInput, IconButton, Card } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { supabase } from '../../services/supabase';
 import { colors, spacing } from '../../constants/theme';
+import { mergeMessage, mergeHistory } from '../../utils/messages';
 
 export default function MessagesScreen() {
   const [loading, setLoading] = useState(true);
@@ -19,28 +20,32 @@ export default function MessagesScreen() {
     initializeChat();
   }, []);
 
+  // Realtime: one channel per couple, listening for new rows in `messages`.
+  // RLS scopes what each partner receives; the filter just narrows the stream.
   useEffect(() => {
-    if (coupleUnit) {
-      fetchMessages();
-      // Subscribe to new messages
-      const subscription = supabase
-        .channel('messages')
-        .on('postgres_changes', {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'messages',
-          filter: `couple_unit_id=eq.${coupleUnit.id}`,
-        }, (payload) => {
-          setMessages(prev => [...prev, payload.new]);
-          scrollToBottom();
-        })
-        .subscribe();
+    if (!coupleUnit || !userId) return;
 
-      return () => {
-        subscription.unsubscribe();
-      };
-    }
-  }, [coupleUnit]);
+    const channel = supabase
+      .channel(`messages:${coupleUnit.id}`)
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'messages',
+        filter: `couple_unit_id=eq.${coupleUnit.id}`,
+      }, (payload) => {
+        setMessages(prev => mergeMessage(prev, payload.new));
+        scrollToBottom();
+        if (payload.new.sender_id !== userId) markMessagesAsRead();
+      })
+      .subscribe((status) => {
+        // (Re)connected: catch up on anything sent while the socket was down.
+        if (status === 'SUBSCRIBED') fetchMessages();
+      });
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [coupleUnit, userId]);
 
   async function initializeChat() {
     try {
@@ -88,7 +93,7 @@ export default function MessagesScreen() {
         .order('created_at', { ascending: true });
 
       if (error) throw error;
-      setMessages(data || []);
+      setMessages(prev => mergeHistory(prev, data));
       scrollToBottom();
 
       // Mark unread messages as read
@@ -116,15 +121,18 @@ export default function MessagesScreen() {
 
     setSending(true);
     try {
-      await supabase
+      const text = newMessage.trim();
+      const { error } = await supabase
         .from('messages')
         .insert([{
           couple_unit_id: coupleUnit.id,
           sender_id: userId,
-          message_text: newMessage.trim(),
+          message_text: text,
           message_type: 'text',
         }]);
+      if (error) throw error;
 
+      // The sent message appears via the Realtime INSERT event like any other.
       setNewMessage('');
     } catch (error) {
       console.error('Error sending message:', error);
