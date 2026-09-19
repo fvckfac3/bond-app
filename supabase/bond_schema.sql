@@ -576,17 +576,13 @@ ALTER TABLE argument_analyses ENABLE ROW LEVEL SECURITY;
 ALTER TABLE voice_tone_analyses ENABLE ROW LEVEL SECURITY;
 ALTER TABLE emotional_pattern_analyses ENABLE ROW LEVEL SECURITY;
 
--- Users can read their couple's analyzer results
-CREATE POLICY analyzer_select ON communication_analyses FOR SELECT USING (couple_id IN (SELECT id FROM couple_units WHERE user_id_1 = auth.uid() OR user_id_2 = auth.uid()));
-CREATE POLICY analyzer_insert ON communication_analyses FOR INSERT WITH CHECK (true);
-CREATE POLICY analyzer_select ON text_analyses FOR SELECT USING (couple_id IN (SELECT id FROM couple_units WHERE user_id_1 = auth.uid() OR user_id_2 = auth.uid()));
-CREATE POLICY analyzer_insert ON text_analyses FOR INSERT WITH CHECK (true);
-CREATE POLICY analyzer_select ON argument_analyses FOR SELECT USING (couple_id IN (SELECT id FROM couple_units WHERE user_id_1 = auth.uid() OR user_id_2 = auth.uid()));
-CREATE POLICY analyzer_insert ON argument_analyses FOR INSERT WITH CHECK (true);
-CREATE POLICY analyzer_select ON voice_tone_analyses FOR SELECT USING (couple_id IN (SELECT id FROM couple_units WHERE user_id_1 = auth.uid() OR user_id_2 = auth.uid()));
-CREATE POLICY analyzer_insert ON voice_tone_analyses FOR INSERT WITH CHECK (true);
-CREATE POLICY analyzer_select ON emotional_pattern_analyses FOR SELECT USING (couple_id IN (SELECT id FROM couple_units WHERE user_id_1 = auth.uid() OR user_id_2 = auth.uid()));
-CREATE POLICY analyzer_insert ON emotional_pattern_analyses FOR INSERT WITH CHECK (true);
+-- Users can read their couple's analyzer results. No client INSERT policy: results are
+-- written only by the backend (service role, which bypasses RLS) after a pairing check.
+CREATE POLICY analyzer_select ON communication_analyses FOR SELECT USING (couple_id IN (SELECT id FROM couple_units WHERE user1_id = auth.uid() OR user2_id = auth.uid()));
+CREATE POLICY analyzer_select ON text_analyses FOR SELECT USING (couple_id IN (SELECT id FROM couple_units WHERE user1_id = auth.uid() OR user2_id = auth.uid()));
+CREATE POLICY analyzer_select ON argument_analyses FOR SELECT USING (couple_id IN (SELECT id FROM couple_units WHERE user1_id = auth.uid() OR user2_id = auth.uid()));
+CREATE POLICY analyzer_select ON voice_tone_analyses FOR SELECT USING (couple_id IN (SELECT id FROM couple_units WHERE user1_id = auth.uid() OR user2_id = auth.uid()));
+CREATE POLICY analyzer_select ON emotional_pattern_analyses FOR SELECT USING (couple_id IN (SELECT id FROM couple_units WHERE user1_id = auth.uid() OR user2_id = auth.uid()));
 
 -- ============================================================================
 -- STATUS CHECKS TABLE (migrated from MongoDB → Supabase)

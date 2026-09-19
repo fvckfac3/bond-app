@@ -83,6 +83,10 @@ class FakeQuery:
         self.filters.append(("or", expression))
         return self
 
+    def limit(self, n):
+        self.filters.append(("limit", n))
+        return self
+
     def gte(self, field, value):
         self.filters.append(("gte", field, value))
         return self
