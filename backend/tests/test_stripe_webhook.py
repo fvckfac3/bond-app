@@ -226,7 +226,8 @@ class TestSubscriptionEventHandlers:
         assert (
             inserted[0].payload["status"] == "active"
         )  # _map_stripe_status("trialing") -> "active"
-        assert inserted[0].payload["plan_type"] == "premium_monthly"
+        assert inserted[0].payload["package_id"] == "premium_monthly"
+        assert inserted[0].payload["stripe_subscription_id"] == "sub_123"
 
     def test_checkout_completed_updates_existing_subscription_instead_of_duplicating(
         self, fake_supabase, monkeypatch
@@ -319,10 +320,10 @@ class TestInvoiceAndUpdateEventHandlers:
         updates = fake_supabase.calls_for("subscriptions", op="update")
         assert len(updates) == 1
         assert updates[0].payload["status"] == "past_due"
-        assert updates[0].payload["plan_type"] == "premium_annual"
+        assert updates[0].payload["package_id"] == "premium_annual"
         assert "ended_at" not in updates[0].payload
 
-    def test_subscription_updated_sets_ended_at_when_canceled(self, fake_supabase, monkeypatch):
+    def test_subscription_updated_maps_canceled_status(self, fake_supabase, monkeypatch):
         monkeypatch.setattr(webhook_module, "supabase", fake_supabase)
 
         now = int(datetime.now(timezone.utc).timestamp())
@@ -349,7 +350,6 @@ class TestInvoiceAndUpdateEventHandlers:
         updates = fake_supabase.calls_for("subscriptions", op="update")
         assert len(updates) == 1
         assert updates[0].payload["status"] == "canceled"
-        assert "ended_at" in updates[0].payload
 
     def test_invoice_payment_succeeded_extends_period(self, fake_supabase, monkeypatch):
         monkeypatch.setattr(webhook_module, "supabase", fake_supabase)
@@ -370,7 +370,7 @@ class TestInvoiceAndUpdateEventHandlers:
         updates = fake_supabase.calls_for("subscriptions", op="update")
         assert len(updates) == 1
         assert updates[0].payload["status"] == "active"
-        assert "last_payment_at" in updates[0].payload
+        assert updates[0].payload["expires_at"] is not None
 
     def test_invoice_payment_succeeded_ignores_one_time_payment(self, fake_supabase, monkeypatch):
         """An invoice with no `subscription` field is a one-time payment, not
@@ -385,9 +385,7 @@ class TestInvoiceAndUpdateEventHandlers:
 
         assert fake_supabase.calls_for("subscriptions") == []
 
-    def test_invoice_payment_failed_marks_past_due_and_logs_failure(
-        self, fake_supabase, monkeypatch
-    ):
+    def test_invoice_payment_failed_marks_past_due(self, fake_supabase, monkeypatch):
         monkeypatch.setattr(webhook_module, "supabase", fake_supabase)
         fake_supabase.table_results["subscriptions"] = FakeResult(data=[{"id": 10}])
 
@@ -409,10 +407,4 @@ class TestInvoiceAndUpdateEventHandlers:
         updates = fake_supabase.calls_for("subscriptions", op="update")
         assert len(updates) == 1
         assert updates[0].payload["status"] == "past_due"
-        assert updates[0].payload["payment_attempts"] == 2
-        assert updates[0].payload["amount_last_failed"] == 14.99
-
-        failures = fake_supabase.calls_for("payment_failures", op="insert")
-        assert len(failures) == 1
-        assert failures[0].payload["attempt_count"] == 2
-        assert failures[0].payload["amount_due"] == 14.99
+        assert "payment_attempts" not in updates[0].payload

@@ -258,7 +258,7 @@ class SubscriptionService {
         .from(table)
         .select('*', { count: 'exact', head: true })
         .eq('user_id', this.userId)
-        .gte('completed_at', startOfMonth.toISOString());
+        .gte(type === 'assessment' ? 'submitted_at' : 'completed_at', startOfMonth.toISOString());
 
       // activity_completions has no `completed` column — a row's existence
       // is itself the completion record (see supabase/bond_schema.sql).

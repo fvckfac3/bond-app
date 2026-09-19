@@ -834,3 +834,34 @@ CREATE POLICY p_activity_completions_insert ON activity_completions
     auth.uid() = user_id
     AND (couple_unit_id IS NULL OR is_couple_member(couple_unit_id))
   );
+
+-- ============================================================
+-- ASSESSMENT SESSIONS + STRIPE CORRELATION
+-- `assessment_sessions` is what app/assessment/[id].tsx writes and what free-tier
+-- usage counting reads, but it was only defined in the older schema.sql.
+-- ============================================================
+CREATE TABLE IF NOT EXISTS assessment_sessions (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  assessment_id TEXT NOT NULL,
+  answers JSONB NOT NULL DEFAULT '{}'::jsonb,
+  scores JSONB,
+  completed BOOLEAN DEFAULT FALSE,
+  submitted_at TIMESTAMPTZ,
+  answer_hash TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_assessment_sessions_user ON assessment_sessions(user_id, assessment_id);
+ALTER TABLE assessment_sessions ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS p_assessment_sessions_select ON assessment_sessions;
+CREATE POLICY p_assessment_sessions_select ON assessment_sessions FOR SELECT USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS p_assessment_sessions_insert ON assessment_sessions;
+CREATE POLICY p_assessment_sessions_insert ON assessment_sessions FOR INSERT WITH CHECK (auth.uid() = user_id);
+DROP POLICY IF EXISTS p_assessment_sessions_update ON assessment_sessions;
+CREATE POLICY p_assessment_sessions_update ON assessment_sessions FOR UPDATE USING (auth.uid() = user_id);
+
+-- Lets later Stripe events (subscription.updated/deleted, invoices) find the row.
+ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS stripe_customer_id TEXT;
+ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS stripe_subscription_id TEXT;
+CREATE INDEX IF NOT EXISTS idx_subscriptions_stripe_sub ON subscriptions(stripe_subscription_id);

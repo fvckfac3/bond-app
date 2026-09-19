@@ -417,7 +417,6 @@ async def get_checkout_status(session_id: str, request: Request):
         update_data = {
             "payment_status": checkout_status.payment_status,
             "status": checkout_status.status,
-            "amount_total": checkout_status.amount_total,
             "currency": checkout_status.currency,
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }
@@ -575,7 +574,7 @@ async def get_user_usage(user_id: str) -> Dict:
         .select("id", count="exact")
         .eq("user_id", user_id)
         .eq("completed", True)
-        .gte("completed_at", month_start.isoformat())
+        .gte("submitted_at", month_start.isoformat())
         .execute()
     )
     assessments_count = assessments_response.count or 0
@@ -584,7 +583,7 @@ async def get_user_usage(user_id: str) -> Dict:
     insights_response = (
         supabase.table("couple_results")
         .select("id", count="exact")
-        .eq("user_id", user_id)
+        .or_(f"partner1_id.eq.{user_id},partner2_id.eq.{user_id}")
         .gte("created_at", month_start.isoformat())
         .execute()
     )
