@@ -23,6 +23,8 @@ export interface SubscriptionStatus {
   plan: 'free' | 'monthly' | 'annual';
   currentPeriodEnd: Date | null;
   cancelAtPeriodEnd: boolean;
+  /** True when Premium comes from the partner's subscription (Premium is per couple). */
+  coveredByPartner: boolean;
 }
 
 // Production Stripe Price IDs - Replace with your actual Stripe price IDs
@@ -88,24 +90,36 @@ class SubscriptionService {
   }
 
   /**
-   * Get current user's subscription from database
+   * Premium is per couple: this reads the user's own subscription or their active
+   * partner's via the `get_couple_subscription()` RPC (supabase/bond_schema.sql),
+   * best subscription first.
+   */
+  private async fetchCoupleSubscription(userId: string): Promise<SubscriptionStatus | null> {
+    const { data, error } = await supabase.rpc('get_couple_subscription');
+    if (error || !data || data.length === 0) return null;
+
+    const row = data[0];
+    const expiresAt = row.expires_at ? new Date(row.expires_at) : null;
+    const notExpired = !expiresAt || expiresAt.getTime() > Date.now();
+    const isActive = ['active', 'trialing'].includes(row.status) && notExpired;
+
+    return {
+      isActive,
+      isTrial: isActive && (row.status === 'trialing' || !!row.is_trial),
+      plan: this.determinePlan(row.package_id),
+      currentPeriodEnd: expiresAt,
+      cancelAtPeriodEnd: row.status === 'canceled' && notExpired,
+      coveredByPartner: isActive && row.owner_id !== userId,
+    };
+  }
+
+  /**
+   * Get current user's (couple's) subscription from database
    */
   async getUserSubscription(): Promise<SubscriptionStatus | null> {
     if (!_userId) return null;
     try {
-      const { data, error } = await supabase
-        .from('subscriptions')
-        .select('*')
-        .eq('user_id', _userId)
-        .single();
-      if (error || !data) return null;
-      return {
-        isActive: ['active', 'trialing'].includes(data.status),
-        isTrial: data.status === 'trialing',
-        plan: this.determinePlan(data.stripe_price_id),
-        currentPeriodEnd: data.current_period_end ? new Date(data.current_period_end) : null,
-        cancelAtPeriodEnd: data.cancel_at_period_end,
-      };
+      return await this.fetchCoupleSubscription(_userId);
     } catch {
       return null;
     }
@@ -152,23 +166,7 @@ class SubscriptionService {
     }
 
     try {
-      const { data, error } = await supabase
-        .from('subscriptions')
-        .select('*')
-        .eq('user_id', this.userId)
-        .single();
-
-      if (error || !data) {
-        return this.getDefaultStatus();
-      }
-
-      const status: SubscriptionStatus = {
-        isActive: ['active', 'trialing'].includes(data.status),
-        isTrial: data.status === 'trialing',
-        plan: this.determinePlan(data.stripe_price_id),
-        currentPeriodEnd: data.current_period_end ? new Date(data.current_period_end) : null,
-        cancelAtPeriodEnd: data.cancel_at_period_end,
-      };
+      const status = (await this.fetchCoupleSubscription(this.userId)) ?? this.getDefaultStatus();
 
       this.subscriptionCache = status;
       this.cacheExpiry = Date.now() + this.CACHE_TTL;
@@ -180,17 +178,11 @@ class SubscriptionService {
   }
 
   /**
-   * Determine plan type from Stripe price ID
+   * Determine plan type from the subscription's package id
    */
-  private determinePlan(stripePriceId: string | null): 'free' | 'monthly' | 'annual' {
-    if (!stripePriceId) return 'free';
-    
-    const annualPackage = SUBSCRIPTION_PACKAGES.find(p => p.id === 'premium_annual');
-    const monthlyPackage = SUBSCRIPTION_PACKAGES.find(p => p.id === 'premium_monthly');
-    
-    if (annualPackage?.stripePriceId === stripePriceId) return 'annual';
-    if (monthlyPackage?.stripePriceId === stripePriceId) return 'monthly';
-    
+  private determinePlan(packageId: string | null): 'free' | 'monthly' | 'annual' {
+    if (packageId === 'premium_annual') return 'annual';
+    if (packageId === 'premium_monthly') return 'monthly';
     return 'free';
   }
 
@@ -204,6 +196,7 @@ class SubscriptionService {
       plan: 'free',
       currentPeriodEnd: null,
       cancelAtPeriodEnd: false,
+      coveredByPartner: false,
     };
   }
 
@@ -252,13 +245,28 @@ class SubscriptionService {
       startOfMonth.setDate(1);
       startOfMonth.setHours(0, 0, 0, 0);
 
+      // `assessment_sessions` (written by app/assessment/[id].tsx) and
+      // `activity_completions` are what the app actually reads/writes for
+      // usage tracking — matches backend/routes/payments.py's get_user_usage(),
+      // which counts the same tables the same way. Note `assessment_sessions`
+      // is missing from supabase/bond_schema.sql (only defined in the older
+      // supabase/schema.sql) — a schema-file gap, not a reason to point this
+      // at a different table than the rest of the app uses.
       const table = type === 'assessment' ? 'assessment_sessions' : 'activity_completions';
-      
-      const { count, error } = await supabase
+
+      let query = supabase
         .from(table)
         .select('*', { count: 'exact', head: true })
         .eq('user_id', this.userId)
-        .gte('created_at', startOfMonth.toISOString());
+        .gte('completed_at', startOfMonth.toISOString());
+
+      // activity_completions has no `completed` column — a row's existence
+      // is itself the completion record (see supabase/bond_schema.sql).
+      if (type === 'assessment') {
+        query = query.eq('completed', true);
+      }
+
+      const { count, error } = await query;
 
       if (error) {
         console.error(`Error getting ${type} usage:`, error);

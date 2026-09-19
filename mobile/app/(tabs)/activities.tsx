@@ -12,20 +12,33 @@ import { colors, spacing, borderRadius, shadows, typography, touchTargets, motio
 import FadeInView from '../../components/animated/FadeInView';
 import ScaleButton from '../../components/animated/ScaleButton';
 import { learningSeriesCatalog } from '../../content/series';
+import { useSubscription } from '../../hooks/useSubscription';
+import PaywallModal from '../../components/subscription/PaywallModal';
 
 export default function ActivitiesScreen() {
   const [loading, setLoading] = useState(true);
+  const [user, setUser] = useState(null);
   const [activities, setActivities] = useState([]);
   const [learningSeries, setLearningSeries] = useState([]);
   const [selectedActivity, setSelectedActivity] = useState(null);
   const [selectedSeriesModule, setSelectedSeriesModule] = useState(null);
   const [selectedCategory, setSelectedCategory] = useState('all');
+  const [showPaywall, setShowPaywall] = useState(false);
 
   const categories = ['all', 'connection', 'communication', 'reflection', 'values'];
 
+  // Get subscription status
+  const { canUseFeature, packages } = useSubscription(user?.id);
+
   useEffect(() => {
     fetchActivities();
+    fetchUser();
   }, []);
+
+  async function fetchUser() {
+    const { data: { user: authUser } } = await supabase.auth.getUser();
+    setUser(authUser);
+  }
 
   async function fetchActivities() {
     try {
@@ -240,14 +253,21 @@ export default function ActivitiesScreen() {
 
               <ScaleButton
                 onPress={() => {
+                  const activity = selectedActivity;
                   setSelectedActivity(null);
+
+                  if (!canUseFeature('activity')) {
+                    setShowPaywall(true);
+                    return;
+                  }
+
                   router.push({
                     pathname: '/activity-complete/[id]',
                     params: {
-                      id: selectedActivity.id,
-                      title: selectedActivity.title,
-                      type: selectedActivity.type,
-                      content: JSON.stringify(selectedActivity.content),
+                      id: activity.id,
+                      title: activity.title,
+                      type: activity.type,
+                      content: JSON.stringify(activity.content),
                     }
                   });
                 }}
@@ -295,6 +315,16 @@ export default function ActivitiesScreen() {
           </Card>
         </Modal>
       </Portal>
+
+      <PaywallModal
+        visible={showPaywall}
+        onClose={() => setShowPaywall(false)}
+        packages={packages}
+        onSuccess={() => {
+          setShowPaywall(false);
+          router.push('/subscription/success');
+        }}
+      />
     </SafeAreaView>
   );
 }

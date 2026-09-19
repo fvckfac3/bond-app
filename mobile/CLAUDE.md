@@ -1,0 +1,22 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code when working within `mobile/`. See the root `CLAUDE.md` for repo-wide context.
+
+## Stack
+
+- Expo (~55), React Native 0.83, Expo Router (file-based routing under `app/`), TypeScript with `"strict": false` in `tsconfig.json` (non-default for Expo's base config — don't assume strict-mode guarantees).
+- State: Zustand + TanStack Query. UI: react-native-paper, moti, react-native-reanimated, react-native-skia, echarts/chart-kit for data viz.
+- Observability: Sentry (`services/sentry.js`, wired in `app/_layout.tsx`) and PostHog (`services/analytics.js`) are both genuinely wired, not just installed — keep them wired for any new screen, don't regress this.
+- Talks to Supabase directly via `services/supabase.js` with the anon key (RLS-governed) for anything the backend doesn't need to do privately.
+
+## Content model
+
+Assessment content (16 modules: Gottman Method, EFT, Attachment Theory, NVC, Five Love Languages, Polyvagal Theory) ships in-app, not in the database — see `utils/allAssessments.js` and sibling files. The Supabase `assessment_questions`/`assessment_dimensions`/`assessment_bands` tables are not the content source and aren't read by any code path; don't wire new code to them without reconciling with `PRDs'@/`.
+
+## Commands
+
+`npm start` / `npm run ios` / `npm run android` / `npm run web` / `npm run lint` (ESLint via `expo lint`, config in `eslint.config.js`). No test script is defined — don't assume `npm test` exists.
+
+## Env
+
+`.env.example` lists `EXPO_PUBLIC_SUPABASE_URL`, `EXPO_PUBLIC_SUPABASE_ANON_KEY`, `EXPO_PUBLIC_BACKEND_URL`, and optional `EXPO_PUBLIC_SENTRY_DSN`, `EXPO_PUBLIC_POSTHOG_API_KEY`/`_HOST`.

@@ -727,3 +727,41 @@ CREATE POLICY p_learning_series_progress_insert ON learning_series_progress
   FOR INSERT WITH CHECK (auth.uid() = user_id);
 CREATE POLICY p_learning_series_progress_update ON learning_series_progress
   FOR UPDATE USING (auth.uid() = user_id);
+-- ============================================================
+-- COUPLE-SCOPED PREMIUM
+-- Premium belongs to the couple: a user is covered if they or their active
+-- partner holds a subscription. RLS on `subscriptions` only exposes a user's
+-- own row, so this SECURITY DEFINER function returns the couple's subscriptions
+-- (best first) with billing details (amounts, Stripe/session ids) left out.
+-- ============================================================
+CREATE OR REPLACE FUNCTION get_couple_subscription()
+RETURNS TABLE (
+  owner_id UUID,
+  is_own BOOLEAN,
+  status TEXT,
+  is_trial BOOLEAN,
+  trial_ends_at TIMESTAMPTZ,
+  expires_at TIMESTAMPTZ,
+  package_id TEXT,
+  "interval" TEXT
+)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+  WITH members AS (
+    SELECT auth.uid() AS uid
+    UNION
+    SELECT CASE WHEN cu.user1_id = auth.uid() THEN cu.user2_id ELSE cu.user1_id END
+    FROM couple_units cu
+    WHERE cu.status = 'active' AND auth.uid() IN (cu.user1_id, cu.user2_id)
+  )
+  SELECT s.user_id, s.user_id = auth.uid(), s.status, s.is_trial, s.trial_ends_at,
+         s.expires_at, s.package_id, s."interval"
+  FROM subscriptions s
+  JOIN members m ON s.user_id = m.uid
+  WHERE m.uid IS NOT NULL
+  ORDER BY (s.status IN ('active', 'trialing') AND s.expires_at > NOW()) DESC,
+           (s.user_id = auth.uid()) DESC,
+           s.expires_at DESC
+$$;
+
+REVOKE ALL ON FUNCTION get_couple_subscription() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION get_couple_subscription() TO authenticated;

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { View, StyleSheet, Text, ScrollView, Dimensions, Alert } from 'react-native';
 import { Card, Button, Divider, ActivityIndicator } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -7,6 +7,9 @@ import { supabase } from '../../services/supabase';
 import { colors, spacing } from '../../constants/theme';
 import { allAssessments } from '../../utils/allAssessments';
 import { getOnboardingRecommendations } from '../../utils/onboardingAssessment';
+import { useSubscription } from '../../hooks/useSubscription';
+import PaywallModal from '../../components/subscription/PaywallModal';
+import UpgradeButton from '../../components/subscription/UpgradeButton';
 
 const { width } = Dimensions.get('window');
 
@@ -19,16 +22,59 @@ export default function ResultsScreen() {
   const [user1Data, setUser1Data] = useState(null);
   const [user2Data, setUser2Data] = useState(null);
   const [generatingInsights, setGeneratingInsights] = useState(false);
+  const [userId, setUserId] = useState(undefined);
+  const [showPaywall, setShowPaywall] = useState(false);
+  const insightsRequested = useRef(false);
+  const { canUseFeature, packages, loading: subscriptionLoading } = useSubscription(userId);
+  const subscriptionReady = !!userId && !subscriptionLoading;
   const onboardingResult = assessmentId === 'onboarding-assessment' ? coupleResult : null;
 
   useEffect(() => {
     loadResults();
   }, [assessmentId, coupleResultId]);
 
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => setUserId(data?.user?.id));
+  }, []);
+
+  // AI generation is a premium feature: only call the backend once we know the
+  // user's plan allows it, and never more than once per screen visit.
+  useEffect(() => {
+    if (insightsRequested.current || !subscriptionReady || loading) return;
+    if (!coupleResult || !user1Data || !user2Data || onboardingResult) return;
+    if (coupleResult.couple_summary || coupleResult.ai_narrative) return;
+    if (!canUseFeature('ai_insight')) return;
+    insightsRequested.current = true;
+    generateAIInsights(coupleResult.id, user1Data, user2Data);
+  }, [subscriptionReady, loading, coupleResult, user1Data, user2Data, canUseFeature]);
+
   async function loadResults() {
     try {
       const foundAssessment = allAssessments.find(a => a.id === assessmentId);
       setAssessment(foundAssessment);
+
+      if (assessmentId === 'onboarding-assessment') {
+        const { data: onboardingData, error: onboardingError } = await supabase
+          .from('onboarding_assessments')
+          .select('*')
+          .eq('assessment_id', assessmentId)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .single();
+
+        if (onboardingError) throw onboardingError;
+        setCoupleResult({
+          compatibility_score: onboardingData?.couple_profile?.score || onboardingData?.coupleScore || 0,
+          couple_summary: onboardingData?.feedback?.summary || onboardingData?.recommendations?.feedback || '',
+          relationship_pattern_title: onboardingData?.recommendations?.headline || onboardingData?.feedback?.headline || 'Onboarding result',
+          relationship_pattern_summary: onboardingData?.feedback?.summary || onboardingData?.recommendations?.feedback || '',
+          recommended_assessments: onboardingData?.recommended_assessments || [],
+          recommended_series: onboardingData?.recommended_series || [],
+          onboarding: onboardingData,
+        });
+        setLoading(false);
+        return;
+      }
 
       const { data: resultData, error: resultError } = await supabase
         .from('couple_results')
@@ -54,9 +100,6 @@ export default function ResultsScreen() {
       setUser1Data(session1);
       setUser2Data(session2);
 
-      if (!resultData.couple_summary && !resultData.ai_narrative) {
-        await generateAIInsights(resultData.id, session1, session2);
-      }
     } catch (error) {
       console.error('Error loading results:', error);
     } finally {
@@ -344,6 +387,17 @@ export default function ResultsScreen() {
               <Text style={styles.generatingText}>Generating AI insights...</Text>
             </Card.Content>
           </Card>
+        ) : subscriptionReady && !onboardingResult && !canUseFeature('ai_insight') ? (
+          <Card style={styles.card}>
+            <Card.Content>
+              <Text style={styles.cardTitle}>🔒 AI Insights</Text>
+              <Text style={styles.generatingText}>
+                Personalized insights, growth recommendations and conversation starters for your
+                results are included with Premium.
+              </Text>
+              <UpgradeButton onPress={() => setShowPaywall(true)} text="Unlock AI Insights" />
+            </Card.Content>
+          </Card>
         ) : coupleResult?.ai_narrative ? (
           <>
             <Card style={styles.card}>
@@ -402,29 +456,6 @@ export default function ResultsScreen() {
           </>
         ) : null}
 
-        {assessmentId === 'onboarding-assessment') {
-          const { data: onboardingData, error: onboardingError } = await supabase
-            .from('onboarding_assessments')
-            .select('*')
-            .eq('assessment_id', assessmentId)
-            .order('created_at', { ascending: false })
-            .limit(1)
-            .single();
-
-          if (onboardingError) throw onboardingError;
-          setCoupleResult({
-            compatibility_score: onboardingData?.couple_profile?.score || onboardingData?.coupleScore || 0,
-            couple_summary: onboardingData?.feedback?.summary || onboardingData?.recommendations?.feedback || '',
-            relationship_pattern_title: onboardingData?.recommendations?.headline || onboardingData?.feedback?.headline || 'Onboarding result',
-            relationship_pattern_summary: onboardingData?.feedback?.summary || onboardingData?.recommendations?.feedback || '',
-            recommended_assessments: onboardingData?.recommended_assessments || [],
-            recommended_series: onboardingData?.recommended_series || [],
-            onboarding: onboardingData,
-          });
-          setLoading(false);
-          return;
-        }
-
         {onboardingResult ? (
           <Card style={styles.card}>
             <Card.Content>
@@ -456,6 +487,16 @@ export default function ResultsScreen() {
           </Button>
         </View>
       </ScrollView>
+
+      <PaywallModal
+        visible={showPaywall}
+        onClose={() => setShowPaywall(false)}
+        packages={packages}
+        onSuccess={() => {
+          setShowPaywall(false);
+          router.push('/subscription/success');
+        }}
+      />
     </SafeAreaView>
   );
 }

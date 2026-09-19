@@ -96,29 +96,34 @@ export default function ProfileScreen() {
               {isPremium ? (
                 <>
                   <Text style={styles.subscriptionStatus}>
-                    {subscription?.is_trial ? '✨ Free Trial Active' : '⭐ Premium Active'}
+                    {subscription?.isTrial ? '✨ Free Trial Active' : '⭐ Premium Active'}
                   </Text>
+                  {subscription?.coveredByPartner && (
+                    <Text style={styles.detailLabel}>
+                      {'Premium is shared across your couple — you’re covered by your partner’s plan.'}
+                    </Text>
+                  )}
                   <View style={styles.subscriptionDetails}>
                     <View style={styles.detailRow}>
                       <Text style={styles.detailLabel}>Plan:</Text>
                       <Text style={styles.detailValue}>
-                        {subscription?.plan === 'premium_annual' ? 'Annual' : 'Monthly'}
+                        {subscription?.plan === 'annual' ? 'Annual' : 'Monthly'}
                       </Text>
                     </View>
-                    {subscription?.is_trial && (
+                    {subscription?.currentPeriodEnd && (
                       <View style={styles.detailRow}>
-                        <Text style={styles.detailLabel}>Trial ends:</Text>
+                        <Text style={styles.detailLabel}>
+                          {subscription.isTrial
+                            ? 'Trial ends:'
+                            : subscription.cancelAtPeriodEnd
+                            ? 'Ends:'
+                            : 'Renews:'}
+                        </Text>
                         <Text style={styles.detailValue}>
-                          {new Date(subscription.trial_ends_at!).toLocaleDateString()}
+                          {subscription.currentPeriodEnd.toLocaleDateString()}
                         </Text>
                       </View>
                     )}
-                    <View style={styles.detailRow}>
-                      <Text style={styles.detailLabel}>Renews:</Text>
-                      <Text style={styles.detailValue}>
-                        {new Date(subscription?.expires_at!).toLocaleDateString()}
-                      </Text>
-                    </View>
                   </View>
                 </>
               ) : (
@@ -128,14 +133,12 @@ export default function ProfileScreen() {
                     <View style={styles.usageRow}>
                       <Text style={styles.usageLabel}>Assessments:</Text>
                       <Text style={styles.usageValue}>
-                        {usage?.assessments_remaining || 0}/{usage?.assessments_limit || 1} remaining
+                        {usage?.assessments_remaining ?? 0}/{usage?.assessments_limit ?? 1} remaining
                       </Text>
                     </View>
                     <View style={styles.usageRow}>
                       <Text style={styles.usageLabel}>AI Insights:</Text>
-                      <Text style={styles.usageValue}>
-                        {usage?.ai_insights_remaining || 0}/{usage?.ai_insights_limit || 5} remaining
-                      </Text>
+                      <Text style={styles.usageValue}>Premium</Text>
                     </View>
                   </View>
                   <UpgradeButton 
