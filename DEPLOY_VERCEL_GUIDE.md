@@ -84,7 +84,7 @@ vercel
 **Via CLI:**
 ```bash
 vercel env add EMERGENT_LLM_KEY production
-# Paste: sk-emergent-a83D30138E76473343
+# Paste: sk-emergent-your-key-here
 
 vercel env add CORS_ORIGINS production  
 # Paste: exp://,*.expo.dev,capacitor://
@@ -95,7 +95,7 @@ vercel env add CORS_ORIGINS production
 2. Click your project (bond-backend)
 3. Settings → Environment Variables
 4. Add:
-   - `EMERGENT_LLM_KEY` = `sk-emergent-a83D30138E76473343`
+   - `EMERGENT_LLM_KEY` = `sk-emergent-your-key-here`
    - `CORS_ORIGINS` = `exp://,*.expo.dev`
 
 ---

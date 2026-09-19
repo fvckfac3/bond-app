@@ -120,7 +120,7 @@ web: uvicorn server:app --host 0.0.0.0 --port $PORT
 
 ```bash
 # Set secrets (they're encrypted)
-flyctl secrets set EMERGENT_LLM_KEY="sk-emergent-a83D30138E76473343"
+flyctl secrets set EMERGENT_LLM_KEY="sk-emergent-your-key-here"
 flyctl secrets set SUPABASE_URL="<your-supabase-url>"
 flyctl secrets set SUPABASE_ANON_KEY="<your-supabase-anon-key>"
 flyctl secrets set SUPABASE_SERVICE_ROLE_KEY="<your-service-role-key>"

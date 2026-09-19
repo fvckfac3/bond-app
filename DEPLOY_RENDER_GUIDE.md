@@ -80,7 +80,7 @@ Fill in these details:
 Scroll down to **"Environment Variables"** section and add:
 
 ```bash
-EMERGENT_LLM_KEY=sk-emergent-a83D30138E76473343
+EMERGENT_LLM_KEY=sk-emergent-your-key-here
 SUPABASE_URL=<your-supabase-url>
 SUPABASE_ANON_KEY=<your-supabase-anon-key>
 SUPABASE_SERVICE_ROLE_KEY=<your-supabase-service-key>

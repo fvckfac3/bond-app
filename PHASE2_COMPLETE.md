@@ -254,7 +254,7 @@ sudo supervisorctl restart backend
 MONGO_URL="mongodb://localhost:27017"
 DB_NAME="test_database"
 CORS_ORIGINS="*"
-EMERGENT_LLM_KEY=sk-emergent-a83D30138E76473343
+EMERGENT_LLM_KEY=sk-emergent-your-key-here
 ```
 
 **Frontend** (`/app/mobile/.env`):

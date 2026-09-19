@@ -90,7 +90,7 @@ if project_home not in sys.path:
     sys.path.insert(0, project_home)
 
 # Set environment variables
-os.environ['EMERGENT_LLM_KEY'] = 'sk-emergent-a83D30138E76473343'
+os.environ['EMERGENT_LLM_KEY'] = 'sk-emergent-your-key-here'
 os.environ['SUPABASE_URL'] = 'your-supabase-url'
 os.environ['SUPABASE_ANON_KEY'] = 'your-supabase-anon-key'
 os.environ['SUPABASE_SERVICE_ROLE_KEY'] = 'your-service-role-key'

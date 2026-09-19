@@ -248,7 +248,7 @@ Scroll down to "Environment Variables" and add:
 MONGO_URL=mongodb://localhost:27017
 DB_NAME=test_database
 CORS_ORIGINS=*
-EMERGENT_LLM_KEY=sk-emergent-a83D30138E76473343
+EMERGENT_LLM_KEY=sk-emergent-your-key-here
 STRIPE_API_KEY=sk_test_emergent
 ```
 

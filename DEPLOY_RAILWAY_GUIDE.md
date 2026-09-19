@@ -117,7 +117,7 @@ railway up
 3. Add these variables:
 
 ```
-EMERGENT_LLM_KEY=sk-emergent-a83D30138E76473343
+EMERGENT_LLM_KEY=sk-emergent-your-key-here
 CORS_ORIGINS=exp://,*.expo.dev,capacitor://,http://localhost:*
 PORT=8001
 ```
@@ -127,7 +127,7 @@ PORT=8001
 **Via CLI:**
 
 ```bash
-railway variables set EMERGENT_LLM_KEY=sk-emergent-a83D30138E76473343
+railway variables set EMERGENT_LLM_KEY=sk-emergent-your-key-here
 railway variables set CORS_ORIGINS="exp://,*.expo.dev"
 ```
 

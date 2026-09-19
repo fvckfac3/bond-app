@@ -246,7 +246,7 @@ SUPABASE_URL=https://cgcxilefnybidbiirkjn.supabase.co
 SUPABASE_ANON_KEY=sb_publishable_eEgLhDrPyNBodoruBE7YIw_ucZVB-hz
 SUPABASE_SERVICE_ROLE_KEY=<your-key>
 CORS_ORIGINS=*
-EMERGENT_LLM_KEY=sk-emergent-a83D30138E76473343
+EMERGENT_LLM_KEY=sk-emergent-your-key-here
 STRIPE_API_KEY=sk_test_emergent
 ```
 
