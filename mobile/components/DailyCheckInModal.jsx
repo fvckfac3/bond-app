@@ -24,16 +24,17 @@ export default function DailyCheckInModal({ visible, onDismiss, coupleUnitId }) 
     try {
       const { data: { user } } = await supabase.auth.getUser();
       
-      await supabase
-        .from('daily_checkins')
-        .insert([{
+      const { error } = await supabase
+        .from('daily_check_ins')
+        .upsert([{
           user_id: user.id,
           couple_unit_id: coupleUnitId,
           connection_score: connectionScore,
-          mood: mood.trim(),
+          mood_note: mood.trim(),
           appreciation: appreciation.trim() || null,
           date: new Date().toISOString().split('T')[0],
-        }]);
+        }], { onConflict: 'user_id,date' });
+      if (error) throw error;
 
       Alert.alert('Success! ✨', 'Daily check-in completed');
       resetForm();

@@ -63,7 +63,7 @@ export default function ProgressScreen() {
 
       // Get check-ins count
       const { count: checkInsCount } = await supabase
-        .from('daily_checkins')
+        .from('daily_check_ins')
         .select('*', { count: 'exact', head: true })
         .eq('couple_unit_id', coupleData.id);
 
@@ -82,8 +82,8 @@ export default function ProgressScreen() {
 
       // Get recent check-ins
       const { data: checkInsData } = await supabase
-        .from('daily_checkins')
-        .select('*, users!daily_checkins_user_id_fkey(name)')
+        .from('daily_check_ins')
+        .select('*, users!daily_check_ins_user_id_fkey(name)')
         .eq('couple_unit_id', coupleData.id)
         .order('date', { ascending: false })
         .limit(7);
@@ -222,7 +222,7 @@ export default function ProgressScreen() {
                       </Text>
                     </View>
                     <View style={styles.checkInDetails}>
-                      <Text style={styles.checkInMood}>Mood: {checkIn.mood}</Text>
+                      <Text style={styles.checkInMood}>Mood: {checkIn.mood_note}</Text>
                       <Text style={styles.checkInScore}>
                         Connection: {checkIn.connection_score}/10
                       </Text>

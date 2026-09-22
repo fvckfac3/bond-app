@@ -88,56 +88,29 @@ export default function PartnerScreen() {
 
     setConnecting(true);
     try {
-      // Find partner by pair code
-      const { data: partnerData, error: partnerError } = await supabase
-        .from('users')
-        .select('*')
-        .eq('pair_code', cleanCode)
-        .single();
+      const { error: pairError } = await supabase.rpc('pair_with_partner', {
+        partner_code: cleanCode,
+      });
 
-      if (partnerError || !partnerData) {
-        Alert.alert('Not Found', 'No account found with that pair code. Please check and try again.');
-        return;
+      if (pairError) {
+        const reasons: Record<string, [string, string]> = {
+          invalid_code: ['Not Found', 'No account found with that pair code. Please check and try again.'],
+          self_pairing: ['Error', 'You cannot connect with yourself'],
+          already_paired: ['Already Connected', 'You are already connected with a partner'],
+          partner_already_paired: ['Unavailable', 'That person is already connected with a partner.'],
+        };
+        const reason = Object.keys(reasons).find((key) => pairError.message?.includes(key));
+        if (reason) {
+          const [title, message] = reasons[reason];
+          Alert.alert(title, message);
+          return;
+        }
+        throw pairError;
       }
-
-      // Check if already in a couple
-      const { data: existingCouple } = await supabase
-        .from('couple_units')
-        .select('*')
-        .or(`user1_id.eq.${user.id},user2_id.eq.${user.id}`)
-        .eq('status', 'active')
-        .single();
-
-      if (existingCouple) {
-        Alert.alert('Already Connected', 'You are already connected with a partner');
-        return;
-      }
-
-      // Create couple unit
-      const { data: newCouple, error: coupleError } = await supabase
-        .from('couple_units')
-        .insert([{
-          user1_id: user.id,
-          user2_id: partnerData.id,
-          status: 'active',
-        }])
-        .select()
-        .single();
-
-      if (coupleError) throw coupleError;
-
-      // Create initial streak
-      await supabase
-        .from('streaks')
-        .insert([{
-          couple_unit_id: newCouple.id,
-          current_streak: 0,
-          longest_streak: 0,
-        }]);
 
       Alert.alert(
         'Connected!',
-        `You are now connected with ${partnerData.name}!`,
+        'You are now connected with your partner!',
         [{ text: 'OK', onPress: () => fetchPartnerData() }]
       );
       setPairCodeInput('');
@@ -224,7 +197,7 @@ export default function PartnerScreen() {
                 <Card.Content>
                   <Text style={styles.cardTitle}>Connect with Partner</Text>
                   <Text style={styles.cardSubtitle}>
-                    Enter your partner's pair code to connect
+                    Enter your partner’s pair code to connect
                   </Text>
                   <TextInput
                     label="Partner's Pair Code"

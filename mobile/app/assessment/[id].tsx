@@ -176,6 +176,8 @@ export default function AssessmentTakeScreen() {
                 if (partnerSession) {
                   const coupleResult = await createCoupleResult(
                     coupleUnit.id,
+                    user.id,
+                    partnerId,
                     sessionId,
                     partnerSession.id,
                     profile,
@@ -260,12 +262,14 @@ export default function AssessmentTakeScreen() {
     ]);
   }
 
-  async function createCoupleResult(coupleUnitId, session1Id, session2Id, session1Profile, session2Scores) {
+  async function createCoupleResult(coupleUnitId, userId, partnerId, session1Id, session2Id, session1Profile, session2Scores) {
     const coupleResult = calculateCoupleAssessmentResult(id, session1Profile, session2Scores);
 
     const payload = {
       couple_unit_id: coupleUnitId,
       assessment_id: id,
+      partner1_id: userId,
+      partner2_id: partnerId,
       user1_session_id: session1Id,
       user2_session_id: session2Id,
       scoring_version: coupleResult.scoringVersion,

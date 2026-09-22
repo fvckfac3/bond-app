@@ -23,25 +23,16 @@ export default function SignupScreen() {
     setLoading(true);
     try {
       // Sign up with Supabase Auth
-      const { data: authData, error: authError } = await supabase.auth.signUp({
+      // The profile row (users) is created by the database from this metadata — see
+      // handle_new_user() in supabase/bond_schema.sql — so it works even before the
+      // email is confirmed and the client has a session.
+      const { error: authError } = await supabase.auth.signUp({
         email,
         password,
+        options: { data: { name, pair_code: generatePairCode() } },
       });
 
       if (authError) throw authError;
-
-      // Create user profile with pair code
-      const pairCode = generatePairCode();
-      const { error: profileError } = await supabase
-        .from('users')
-        .insert([{
-          id: authData.user.id,
-          email,
-          name,
-          pair_code: pairCode,
-        }]);
-
-      if (profileError) throw profileError;
 
       Alert.alert('Success', 'Account created! Please check your email to verify your account.');
       router.replace('/(auth)/login');
