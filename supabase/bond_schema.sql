@@ -865,3 +865,23 @@ CREATE POLICY p_assessment_sessions_update ON assessment_sessions FOR UPDATE USI
 ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS stripe_customer_id TEXT;
 ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS stripe_subscription_id TEXT;
 CREATE INDEX IF NOT EXISTS idx_subscriptions_stripe_sub ON subscriptions(stripe_subscription_id);
+
+-- ============================================================
+-- PUSH TOKENS
+-- One Expo push token per user (latest device wins). Written by the mobile app.
+-- ============================================================
+CREATE TABLE IF NOT EXISTS user_push_tokens (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id UUID NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+  token TEXT NOT NULL,
+  platform TEXT,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+ALTER TABLE user_push_tokens ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS p_user_push_tokens_select ON user_push_tokens;
+CREATE POLICY p_user_push_tokens_select ON user_push_tokens FOR SELECT USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS p_user_push_tokens_insert ON user_push_tokens;
+CREATE POLICY p_user_push_tokens_insert ON user_push_tokens FOR INSERT WITH CHECK (auth.uid() = user_id);
+DROP POLICY IF EXISTS p_user_push_tokens_update ON user_push_tokens;
+CREATE POLICY p_user_push_tokens_update ON user_push_tokens
+  FOR UPDATE USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);

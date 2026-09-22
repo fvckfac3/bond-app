@@ -11,24 +11,6 @@ import FadeInView from '../../../components/animated/FadeInView';
 import ScaleButton from '../../../components/animated/ScaleButton';
 import { colors, spacing, shadows } from '../../../constants/theme';
 
-export default function VoiceToneAnalyzerScreen() {
-  const [transcript, setTranscript] = useState('');
-  const [analyzing, setAnalyzing] = useState(false);
-  const [results, setResults] = useState<any>(null);
-
-  const demoTranscript = `Alex: Hey, so I was thinking about our weekend plans. Are you still up for going to the farmers market?
-Jordan: Yeah, that sounds great! I've been wanting to check out that new coffee place nearby too.
-Alex: Oh nice! I heard they have amazing pastries. Should we make a day of it?
-Jordan: Absolutely. Maybe we could also try that hiking trail after?
-Alex: I'd love that. Honestly, this is why I love spending time with you - you're always so thoughtful.
-Jordan: Aww, that's sweet. Same here. I really appreciate how you always make time for us.
-Alex: Of course! You deserve it. Hey, about that - are you feeling okay about work stuff?
-Jordan: It's been a bit stressful, but I'm managing. Thanks for asking.
-Alex: I'm here if you want to talk about it. No pressure though.
-Jordan: I know, and I really appreciate that. Maybe this weekend we can chat more?
-Alex: Perfect. I love you.
-Jordan: Love you too.`;
-
 /**
  * VoiceToneAnalyzerScreen - Analyze vocal patterns and speaking balance in conversations
  */

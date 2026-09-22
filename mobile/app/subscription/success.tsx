@@ -4,9 +4,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MotiView } from 'moti';
-import { colors, spacing } from '../../../constants/theme';
-import subscriptionService from '../../../services/subscription';
-import ScaleButton from '../../../components/animated/ScaleButton';
+import { colors, spacing } from '../../constants/theme';
+import subscriptionService from '../../services/subscription';
+import ScaleButton from '../../components/animated/ScaleButton';
 
 export default function SubscriptionSuccessScreen() {
   const router = useRouter();
@@ -143,7 +143,7 @@ export default function SubscriptionSuccessScreen() {
             <Text style={styles.emoji}>⏳</Text>
             <Text style={styles.title}>Payment Processing</Text>
             <Text style={styles.subtitle}>
-              Your payment is being processed. This may take a few minutes. You'll receive a
+              Your payment is being processed. This may take a few minutes. You’ll receive a
               confirmation email soon.
             </Text>
             <ScaleButton onPress={() => router.push('/(tabs)/dashboard')} style={styles.buttonContainer}>

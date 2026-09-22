@@ -10,6 +10,7 @@ import { getOnboardingRecommendations } from '../../utils/onboardingAssessment';
 import { useSubscription } from '../../hooks/useSubscription';
 import PaywallModal from '../../components/subscription/PaywallModal';
 import UpgradeButton from '../../components/subscription/UpgradeButton';
+import { logError } from '../../services/sentry';
 
 const { width } = Dimensions.get('window');
 
@@ -113,9 +114,7 @@ export default function ResultsScreen() {
       const backendUrl = process.env.EXPO_PUBLIC_BACKEND_URL;
       
       if (!backendUrl) {
-        console.error('Backend URL not configured');
-        Alert.alert('Configuration Error', 'AI insights service is not configured. Please contact support.');
-        return;
+        throw new Error('EXPO_PUBLIC_BACKEND_URL is not configured; set it in .env before building.');
       }
 
       const response = await fetch(`${backendUrl}/api/generate-insights`, {
@@ -150,7 +149,8 @@ export default function ResultsScreen() {
 
       await loadResults();
     } catch (error) {
-      console.error('Error generating insights:', error);
+      logError(error, { tags: { feature: 'ai_insights' }, extra: { resultId } });
+      Alert.alert('Insights unavailable', 'We couldn’t generate insights right now. Please try again later.');
     } finally {
       setGeneratingInsights(false);
     }
@@ -438,7 +438,7 @@ export default function ResultsScreen() {
                     <View style={styles.script}>
                       <Text style={styles.scriptLabel}>For differences:</Text>
                       <Text style={styles.scriptText}>
-                        "{coupleResult.ai_communication_scripts.divergence_conversation}"
+                        “{coupleResult.ai_communication_scripts.divergence_conversation}”
                       </Text>
                     </View>
                   )}
@@ -446,7 +446,7 @@ export default function ResultsScreen() {
                     <View style={styles.script}>
                       <Text style={styles.scriptLabel}>For appreciation:</Text>
                       <Text style={styles.scriptText}>
-                        "{coupleResult.ai_communication_scripts.appreciation_expression}"
+                        “{coupleResult.ai_communication_scripts.appreciation_expression}”
                       </Text>
                     </View>
                   )}

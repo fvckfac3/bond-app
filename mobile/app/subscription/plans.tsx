@@ -3,11 +3,11 @@ import { View, Text, StyleSheet, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
-import { colors, spacing } from '../../../constants/theme';
-import { useSubscription } from '../../../hooks/useSubscription';
-import PaywallModal from '../../../components/subscription/PaywallModal';
-import FadeInView from '../../../components/animated/FadeInView';
-import ScaleButton from '../../../components/animated/ScaleButton';
+import { colors, spacing } from '../../constants/theme';
+import { useSubscription } from '../../hooks/useSubscription';
+import PaywallModal from '../../components/subscription/PaywallModal';
+import FadeInView from '../../components/animated/FadeInView';
+import ScaleButton from '../../components/animated/ScaleButton';
 
 export default function SubscriptionPlansScreen() {
   const router = useRouter();
@@ -31,7 +31,7 @@ export default function SubscriptionPlansScreen() {
           <ScrollView contentContainerStyle={styles.scrollContent}>
             <FadeInView style={styles.header}>
               <Text style={styles.emoji}>✨</Text>
-              <Text style={styles.title}>You're Premium!</Text>
+              <Text style={styles.title}>You’re Premium!</Text>
               <Text style={styles.subtitle}>
                 Thank you for supporting BOND. You have access to all features.
               </Text>

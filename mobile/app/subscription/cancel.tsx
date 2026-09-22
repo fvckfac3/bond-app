@@ -4,8 +4,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MotiView } from 'moti';
-import { colors, spacing } from '../../../constants/theme';
-import ScaleButton from '../../../components/animated/ScaleButton';
+import { colors, spacing } from '../../constants/theme';
+import ScaleButton from '../../components/animated/ScaleButton';
 
 export default function SubscriptionCancelScreen() {
   const router = useRouter();

@@ -107,10 +107,16 @@ app.include_router(analyzers_router)
 app.include_router(features_router)
 app.include_router(stripe_webhook_router)
 
+# Browser origins allowed to call the API. Native mobile requests send no Origin header,
+# so CORS doesn't apply to the app; this only governs web clients. Never "*" in production.
+cors_origins = [
+    o.strip() for o in os.environ.get("CORS_ORIGINS", "http://localhost:3000").split(",") if o.strip()
+]
+
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
-    allow_origins=os.environ.get('CORS_ORIGINS', '*').split(',') if os.environ.get('CORS_ORIGINS') != '*' else ['*'],
+    allow_origins=cors_origins,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
     expose_headers=["*"],

@@ -3,8 +3,8 @@ import { ImageBackground, ScrollView, StyleSheet, Text, View } from 'react-nativ
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Card, Button, Divider, Chip } from 'react-native-paper';
-import { colors, spacing, borderRadius, shadows, typography } from '../../../../constants/theme';
-import { learningSeriesBannerMap, learningSeriesIndex, learningSeriesCatalog } from '../../../../content/series';
+import { colors, spacing, borderRadius, shadows, typography } from '../../../constants/theme';
+import { learningSeriesBannerMap, learningSeriesIndex, learningSeriesCatalog } from '../../../content/series';
 
 export default function LearningModuleScreen() {
   const router = useRouter();

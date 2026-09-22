@@ -1,5 +1,6 @@
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
+import Constants from 'expo-constants';
 import { supabase } from './supabase';
 
 // Configure notification handler
@@ -36,29 +37,33 @@ class PushNotificationService {
         return null;
       }
 
-      // Get the push token
-      const token = (await Notifications.getExpoPushTokenAsync()).data;
-      console.log('Push token:', token);
+      const projectId = Constants.expoConfig?.extra?.eas?.projectId;
+      const token = (await Notifications.getExpoPushTokenAsync({ projectId })).data;
 
-      // Save token to user profile in Supabase
-      try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (user) {
-          await supabase
-            .from('users')
-            .update({ push_token: token, push_token_updated_at: new Date().toISOString() })
-            .eq('id', user.id);
-          console.log('Push token saved to database');
-        }
-      } catch (error) {
-        console.error('Error saving push token:', error);
-      }
-
+      await this.savePushToken(token);
       return token;
     } catch (error) {
       console.error('Error registering for push notifications:', error);
       return null;
     }
+  }
+
+  // Needs a signed-in user (RLS: users write only their own row); called again on SIGNED_IN.
+  async savePushToken(token) {
+    const { data: { session } } = await supabase.auth.getSession();
+    const userId = session?.user?.id;
+    if (!userId || !token) return;
+
+    const { error } = await supabase.from('user_push_tokens').upsert(
+      {
+        user_id: userId,
+        token,
+        platform: Platform.OS,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'user_id' }
+    );
+    if (error) console.error('Failed to save push token:', error);
   }
 
   async scheduleDailyCheckInReminder() {

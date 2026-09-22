@@ -56,7 +56,7 @@ export default function ArgumentAnalyzerScreen() {
       conflict_score: 68,
       severity_level: 'moderate',
       escalation_patterns: [
-        'Criticism present (starting with "Why can't you ever...")',
+        "Criticism present (starting with 'Why can't you ever...')",
         'Defensiveness triggered by initial frustration',
         'Escalation through defensive retorts',
         'Resolution avoided due to exhaustion',

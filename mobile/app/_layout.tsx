@@ -7,6 +7,7 @@ import { useEffect } from 'react';
 import { pushNotificationService } from '../services/pushNotifications';
 import Sentry from '../services/sentry';
 import Analytics from '../services/analytics';
+import { supabase } from '../services/supabase';
 
 // Initialize Sentry
 Sentry.init();
@@ -43,6 +44,11 @@ export default function RootLayout() {
     }
     
     initializeApp();
+
+    const { data: authListener } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'SIGNED_IN') pushNotificationService.registerForPushNotifications();
+    });
+    return () => authListener.subscription.unsubscribe();
   }, []);
 
   return (
