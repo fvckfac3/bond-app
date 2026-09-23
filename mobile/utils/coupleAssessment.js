@@ -119,6 +119,35 @@ const coupleRuleConfigByAssessment = {
     sharedGrowthThreshold: 54,
     lowFloorThreshold: 45,
   },
+  // Ported from the former supabase/couple_assessment_seed.sql (that DB copy was never read; dropped in 011).
+  'emotional-intelligence': {
+    averageWeight: 0.33,
+    alignmentWeight: 0.33,
+    floorWeight: 0.34,
+    highGapThreshold: 22,
+    sharedStrengthThreshold: 72,
+    sharedGrowthThreshold: 56,
+    lowFloorThreshold: 45,
+  },
+  'sexual-compatibility': {
+    // The lower score carries more weight: desire and safety both need to hold for each partner.
+    averageWeight: 0.25,
+    alignmentWeight: 0.35,
+    floorWeight: 0.4,
+    highGapThreshold: 20,
+    sharedStrengthThreshold: 72,
+    sharedGrowthThreshold: 55,
+    lowFloorThreshold: 45,
+  },
+  'relationship-satisfaction': {
+    averageWeight: 0.35,
+    alignmentWeight: 0.3,
+    floorWeight: 0.35,
+    highGapThreshold: 22,
+    sharedStrengthThreshold: 72,
+    sharedGrowthThreshold: 55,
+    lowFloorThreshold: 50,
+  },
   'appreciation-gratitude': {
     averageWeight: 0.35,
     alignmentWeight: 0.3,
@@ -223,6 +252,18 @@ const assessmentActions = {
   'fun-personality': {
     stronger: 'Protect the places where laughter and play come naturally.',
     weaker: 'Schedule lightness instead of waiting for it to happen by chance.',
+  },
+  'emotional-intelligence': {
+    stronger: 'Use the partner who regulates more easily to set the pace when feelings run high.',
+    weaker: 'Practice naming one feeling out loud, and reflecting what you heard, before you respond.',
+  },
+  'sexual-compatibility': {
+    stronger: 'Keep talking openly about what feels good and what feels safe, so closeness stays mutual.',
+    weaker: 'Talk about desire and boundaries in a calm, neutral moment, without trying to fix anything yet.',
+  },
+  'relationship-satisfaction': {
+    stronger: 'Name what the relationship does well so the good parts stay visible.',
+    weaker: 'Pick one recurring decision to make together and one shared activity to put on the calendar.',
   },
   'appreciation-gratitude': {
     stronger: 'Use appreciation as a daily stabilizer, not just a response to special moments.',
@@ -519,6 +560,11 @@ export function calculateCoupleAssessmentResult(assessmentId, leftInput, rightIn
 
 export function getCoupleRuleConfig(assessmentId) {
   return getRuleConfig(assessmentId);
+}
+
+// True when an assessment has its own couple weighting and action copy (not just the defaults).
+export function hasCoupleRules(assessmentId) {
+  return Boolean(coupleRuleConfigByAssessment[assessmentId] && assessmentActions[assessmentId]);
 }
 
 export function calculateCompatibilityScoreWithFeedback(assessmentId, leftInput, rightInput) {

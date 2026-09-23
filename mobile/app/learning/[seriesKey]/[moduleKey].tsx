@@ -1,51 +1,117 @@
-import { useMemo } from 'react';
-import { ImageBackground, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useState } from 'react';
+import { ActivityIndicator, ImageBackground, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { Card, Button, Divider, Chip } from 'react-native-paper';
 import { colors, spacing, borderRadius, shadows, typography } from '../../../constants/theme';
-import { learningSeriesBannerMap, learningSeriesIndex, learningSeriesCatalog } from '../../../content/series';
+import { supabase } from '../../../services/supabase';
+import { trackEvent, AnalyticsEvents } from '../../../services/analytics';
+import {
+  fetchCompletedModules,
+  fetchModule,
+  fetchSeries,
+  LearningModule,
+  LearningSeries,
+  markModuleComplete,
+} from '../../../services/learning';
+
+const wideBanner = require('../../../assets/bond-cover-wide-dark.png');
+const cinematicBanner = require('../../../assets/bond-cover-cinematic-dark.png');
 
 export default function LearningModuleScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ seriesKey: string; moduleKey: string }>();
-  const seriesKey = params.seriesKey || 'connection-series';
-  const moduleKey = params.moduleKey || '';
+  const { seriesKey, moduleKey } = useLocalSearchParams<{ seriesKey: string; moduleKey: string }>();
+  const [series, setSeries] = useState<LearningSeries | null>(null);
+  const [module, setModule] = useState<LearningModule | null>(null);
+  const [userId, setUserId] = useState<string | null>(null);
+  const [completed, setCompleted] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [failed, setFailed] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveFailed, setSaveFailed] = useState(false);
 
-  const series = learningSeriesIndex[seriesKey] || learningSeriesIndex['connection-series'];
-  const module = useMemo(() => series.find((item) => item.id === moduleKey) || series[0], [series, moduleKey]);
-  const seriesMeta = learningSeriesCatalog.find((item) => item.key === seriesKey) || learningSeriesCatalog[0];
-  const banner = learningSeriesBannerMap[seriesKey] || learningSeriesBannerMap['connection-series'];
+  const load = useCallback(async () => {
+    try {
+      setFailed(false);
+      const [{ data: { user } }, seriesData, moduleData] = await Promise.all([
+        supabase.auth.getUser(),
+        fetchSeries(seriesKey),
+        fetchModule(seriesKey, moduleKey),
+      ]);
+      setSeries(seriesData);
+      setModule(moduleData);
+      setUserId(user?.id ?? null);
+      if (user) {
+        const progress = await fetchCompletedModules(user.id, seriesKey);
+        setCompleted(Boolean(progress[seriesKey]?.has(moduleKey)));
+      }
+    } catch (error) {
+      console.error('Error loading lesson:', error);
+      setFailed(true);
+    } finally {
+      setLoading(false);
+    }
+  }, [seriesKey, moduleKey]);
 
-  const heroSource = banner ? { uri: banner } : undefined;
+  useFocusEffect(useCallback(() => { load(); }, [load]));
 
-  if (!module) {
+  async function handleMarkComplete() {
+    if (!userId) return;
+    setSaving(true);
+    setSaveFailed(false);
+    try {
+      await markModuleComplete(userId, seriesKey, moduleKey);
+      setCompleted(true);
+      trackEvent(AnalyticsEvents.LEARNING_MODULE_COMPLETED, { series_key: seriesKey, module_key: moduleKey });
+    } catch (error) {
+      console.error('Error saving progress:', error);
+      setSaveFailed(true);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.center}><ActivityIndicator color={colors.gold} /></View>
+      </SafeAreaView>
+    );
+  }
+
+  if (!module?.content) {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.center}>
-          <Text style={styles.title}>Lesson not found</Text>
-          <Button mode="contained" onPress={() => router.back()}>Go back</Button>
+          <Text style={styles.title}>{failed ? 'Could not load this lesson' : 'Lesson not found'}</Text>
+          {failed ? <Button mode="contained" style={styles.cta} onPress={load}>Try again</Button> : null}
+          <Button textColor={colors.gold} onPress={() => router.back()}>Go back</Button>
         </View>
       </SafeAreaView>
     );
   }
 
+  const modules = series?.modules || [];
+  const position = modules.findIndex((m) => m.module_key === moduleKey);
+  const nextModule = position >= 0 ? modules[position + 1] : undefined;
+  const banner = (series?.sort_order ?? 0) % 2 === 0 ? wideBanner : cinematicBanner;
+
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView contentContainerStyle={styles.content}>
         <Card style={styles.heroCard}>
-          <ImageBackground
-            source={heroSource}
-            style={styles.heroImage}
-            imageStyle={styles.heroImageInner}
-          >
+          <ImageBackground source={banner} style={styles.heroImage} imageStyle={styles.heroImageInner}>
             <View style={styles.heroOverlay}>
-              <Text style={styles.kicker}>{seriesMeta.title}</Text>
+              <Text style={styles.kicker}>
+                {series?.title}{position >= 0 ? ` · Lesson ${position + 1} of ${modules.length}` : ''}
+              </Text>
               <Text style={styles.heroTitle}>{module.title}</Text>
-              <Text style={styles.heroDescription}>{module.description}</Text>
+              <Text style={styles.heroDescription}>{module.description || module.summary}</Text>
               <View style={styles.metaRow}>
                 <Chip style={styles.goldChip} textStyle={styles.goldChipText}>{module.duration}</Chip>
-                <Chip style={styles.roseChip} textStyle={styles.roseChipText}>{seriesMeta.key.replace(/-/g, ' ')}</Chip>
+                {module.frameworks.map((framework) => (
+                  <Chip key={framework} style={styles.roseChip} textStyle={styles.roseChipText}>{framework}</Chip>
+                ))}
               </View>
             </View>
           </ImageBackground>
@@ -93,21 +159,30 @@ export default function LearningModuleScreen() {
           </Card>
         ))}
 
+        {module.content.conclusion ? (
+          <Card style={styles.card}>
+            <Card.Content>
+              <Text style={styles.body}>{module.content.conclusion}</Text>
+            </Card.Content>
+          </Card>
+        ) : null}
+
         <Card style={styles.card}>
           <Card.Content>
             <Text style={styles.sectionTitle}>Key Takeaways</Text>
-            {module.keyTakeaways.map((item) => (
+            {module.key_takeaways.map((item) => (
               <Text key={item} style={styles.step}>• {item}</Text>
             ))}
           </Card.Content>
         </Card>
 
-        {module.exercises?.map((exercise) => (
+        {module.exercises.map((exercise) => (
           <Card key={exercise.title} style={styles.card}>
             <Card.Content>
+              <Text style={styles.badgeLabel}>Try it together</Text>
               <Text style={styles.sectionTitle}>{exercise.title}</Text>
-              <Text style={styles.body}>{exercise.description}</Text>
-              <Text style={styles.sourceText}>{exercise.duration}</Text>
+              {exercise.description ? <Text style={styles.body}>{exercise.description}</Text> : null}
+              {exercise.duration ? <Text style={styles.sourceText}>{exercise.duration}</Text> : null}
               {exercise.instructions.map((step) => (
                 <Text key={step} style={styles.step}>• {step}</Text>
               ))}
@@ -120,17 +195,44 @@ export default function LearningModuleScreen() {
             <Card.Content>
               <Text style={styles.sectionTitle}>Reflection</Text>
               <Text style={styles.body}>{module.reflection.question}</Text>
-              <Text style={styles.researchText}>{module.reflection.followUp}</Text>
+              {module.reflection.followUp ? <Text style={styles.researchText}>{module.reflection.followUp}</Text> : null}
             </Card.Content>
           </Card>
         ) : null}
 
         <Card style={styles.card}>
           <Card.Content>
-            <Text style={styles.sectionTitle}>Continue Learning</Text>
-            <Text style={styles.body}>Return to the series hub to keep moving through the lessons at your own pace.</Text>
-            <Button mode="contained" style={styles.cta} contentStyle={styles.ctaContent} onPress={() => router.push('/(tabs)/activities')}>
-              Back to Series Hub
+            {completed ? (
+              <Text style={styles.completedText}>✓ Lesson completed</Text>
+            ) : (
+              <Button
+                mode="contained"
+                style={styles.cta}
+                contentStyle={styles.ctaContent}
+                loading={saving}
+                disabled={saving || !userId}
+                onPress={handleMarkComplete}
+              >
+                Mark lesson complete
+              </Button>
+            )}
+            {saveFailed ? <Text style={styles.errorText}>Could not save your progress. Please try again.</Text> : null}
+            {nextModule ? (
+              <Button
+                mode="outlined"
+                style={styles.secondaryButton}
+                textColor={colors.gold}
+                onPress={() => router.replace({ pathname: '/learning/[seriesKey]/[moduleKey]', params: { seriesKey, moduleKey: nextModule.module_key } })}
+              >
+                Next: {nextModule.title}
+              </Button>
+            ) : null}
+            <Button
+              textColor={colors.gold}
+              style={styles.secondaryButton}
+              onPress={() => router.replace({ pathname: '/learning/[seriesKey]', params: { seriesKey } })}
+            >
+              All lessons in this series
             </Button>
           </Card.Content>
         </Card>
@@ -277,5 +379,26 @@ const styles = StyleSheet.create({
     color: colors.gold,
     textTransform: 'uppercase',
     letterSpacing: 1.6,
+  },
+  completedText: {
+    fontSize: typography.h4.fontSize,
+    fontWeight: '700',
+    color: colors.gold,
+    textAlign: 'center',
+  },
+  errorText: {
+    marginTop: spacing.sm,
+    fontSize: typography.bodySmall.fontSize,
+    color: colors.blush,
+  },
+  secondaryButton: {
+    marginTop: spacing.sm,
+    borderColor: 'rgba(201, 147, 60, 0.4)',
+  },
+  title: {
+    fontSize: typography.h2.fontSize,
+    fontWeight: '800',
+    color: '#F8F1E6',
+    marginBottom: spacing.sm,
   },
 });

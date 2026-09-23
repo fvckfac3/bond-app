@@ -43,6 +43,7 @@
 ## Content
 **Built:** 16 assessments with framework citations, learning series content, all client-side.
 **Remaining:** decide the fate of the dormant Supabase assessment-content schema (11 §3) — either commit to client-side content permanently (and consider dropping the unused tables) or plan a migration to server-driven content (and actually wire it up). Living with both unresolved is the worst option — every new assessment added under the current pattern deepens the eventual migration cost if server-driven content is ever chosen.
+**Resolved (2026-09-23), hybrid:** assessments and all scoring stay client-side; the dormant assessment-content tables are dropped (migration 011). Editorial content — learning series, activities, daily questions, check-in topics, deep-dive themes — lives in Supabase (migrations 012–013, `review_status` = draft until reviewed).
 
 ## Documentation
 **Built:** this suite, plus an unusually large volume of status/guide markdown in the repo root (20+ files: `*_COMPLETE.md`, `*_GUIDE.md`, deployment guides).

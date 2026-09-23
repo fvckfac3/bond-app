@@ -1,8 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { allAssessments } from './allAssessments.js';
-import { learningSeriesCatalog } from '../content/series/learningLibrary.ts';
+import { readFileSync } from 'node:fs';
 import { onboardingQuestions, onboardingPlans, calculateOnboardingAssessmentProfile } from './onboardingAssessment.js';
+
+// The learning library lives in Supabase, seeded by migration 012; read its series keys from there.
+const librarySql = readFileSync(new URL('../../supabase/migrations/012_content_learning_library.sql', import.meta.url), 'utf8');
+const librarySeriesKeys = new Set(
+  [...librarySql.matchAll(/^INSERT INTO learning_series \([^)]*\) VALUES \('([^']+)'/gm)].map((m) => m[1])
+);
 
 // Answers exactly as the assessment screen saves them: the chosen option object.
 const pick = (id, text) => {
@@ -39,7 +45,8 @@ test('recommendations follow the stated need, not a default', () => {
 
 test('every possible answer combination recommends real assessments and series', () => {
   const assessmentIds = new Set(allAssessments.map((a) => a.id));
-  const seriesKeys = new Set(learningSeriesCatalog.map((s) => s.key));
+  const seriesKeys = librarySeriesKeys;
+  assert.equal(seriesKeys.size, 10);
   const [stages, lengths, challenges, goals] = onboardingQuestions.map((q) => q.options);
   for (const stage of stages) for (const length of lengths) for (const challenge of challenges) for (const goal of goals) {
     const profile = calculateOnboardingAssessmentProfile({

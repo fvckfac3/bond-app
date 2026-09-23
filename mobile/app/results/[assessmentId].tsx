@@ -6,7 +6,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { supabase } from '../../services/supabase';
 import { colors, spacing } from '../../constants/theme';
 import { allAssessments } from '../../utils/allAssessments';
-import { learningSeriesCatalog } from '../../content/series';
+import { fetchSeriesTitles } from '../../services/learning';
 import { useSubscription } from '../../hooks/useSubscription';
 import PaywallModal from '../../components/subscription/PaywallModal';
 import UpgradeButton from '../../components/subscription/UpgradeButton';
@@ -24,6 +24,7 @@ export default function ResultsScreen() {
   const [user2Data, setUser2Data] = useState(null);
   const [generatingInsights, setGeneratingInsights] = useState(false);
   const [insightsFailed, setInsightsFailed] = useState(false);
+  const [seriesTitles, setSeriesTitles] = useState<Record<string, string>>({});
   const [userId, setUserId] = useState(undefined);
   const [showPaywall, setShowPaywall] = useState(false);
   const insightsRequested = useRef(false);
@@ -74,6 +75,8 @@ export default function ResultsScreen() {
           recommended_series: onboardingData?.recommended_series || [],
           onboarding: onboardingData,
         });
+        // Titles are a nicety: fall back to the series key if the lookup fails.
+        fetchSeriesTitles(onboardingData?.recommended_series || []).then(setSeriesTitles).catch(() => {});
         setLoading(false);
         return;
       }
@@ -479,8 +482,12 @@ export default function ResultsScreen() {
               <Divider style={{ marginVertical: spacing.md }} />
               <Text style={styles.cardTitle}>Recommended Learning Series</Text>
               {(onboardingResult.recommended_series || []).map((item) => (
-                <Text key={item} style={styles.bullet}>
-                  • {learningSeriesCatalog.find((series) => series.key === item)?.title || item}
+                <Text
+                  key={item}
+                  style={styles.bullet}
+                  onPress={() => router.push({ pathname: '/learning/[seriesKey]', params: { seriesKey: item } })}
+                >
+                  • {seriesTitles[item] || item} →
                 </Text>
               ))}
             </Card.Content>

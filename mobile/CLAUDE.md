@@ -11,7 +11,9 @@ This file provides guidance to Claude Code when working within `mobile/`. See th
 
 ## Content model
 
-Assessment content (16 modules: Gottman Method, EFT, Attachment Theory, NVC, Five Love Languages, Polyvagal Theory) ships in-app, not in the database — see `utils/allAssessments.js` and sibling files. The Supabase `assessment_questions`/`assessment_dimensions`/`assessment_bands` tables are not the content source and aren't read by any code path; don't wire new code to them without reconciling with `PRDs'@/`.
+Assessment content (16 modules: Gottman Method, EFT, Attachment Theory, NVC, Five Love Languages, Polyvagal Theory) and all scoring ship in-app — see `utils/allAssessments.js`, `assessmentEngine.js`, `coupleAssessment.js` (every assessment needs an entry in both `coupleRuleConfigByAssessment` and `assessmentActions`; `npm test` checks this).
+
+Editorial content is read from Supabase, not bundled: the learning library through `services/learning.ts` (series list, series screen `app/learning/[seriesKey]/index.tsx`, lesson screen `app/learning/[seriesKey]/[moduleKey].tsx`, progress in `learning_series_progress`), and activities from the `activities` table ordered by `sort_order`. Content changes are SQL migrations, not app releases.
 
 ## Commands
 

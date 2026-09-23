@@ -185,44 +185,6 @@ CREATE TABLE IF NOT EXISTS assessments (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS assessment_dimensions (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  assessment_id TEXT NOT NULL REFERENCES assessments(id) ON DELETE CASCADE,
-  dimension_key TEXT NOT NULL,
-  label TEXT NOT NULL,
-  direction TEXT NOT NULL CHECK (direction IN ('positive','risk')),
-  weight NUMERIC(6,2) NOT NULL DEFAULT 1,
-  sort_order INTEGER NOT NULL DEFAULT 0,
-  UNIQUE(assessment_id, dimension_key)
-);
-
-CREATE TABLE IF NOT EXISTS assessment_bands (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  assessment_id TEXT NOT NULL REFERENCES assessments(id) ON DELETE CASCADE,
-  band_key TEXT NOT NULL,
-  min_score NUMERIC(5,2) NOT NULL,
-  max_score NUMERIC(5,2) NOT NULL,
-  title TEXT NOT NULL,
-  summary TEXT NOT NULL,
-  recommendation TEXT NOT NULL,
-  sort_order INTEGER NOT NULL DEFAULT 0,
-  UNIQUE(assessment_id, band_key)
-);
-
-CREATE TABLE IF NOT EXISTS assessment_questions (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  assessment_id TEXT NOT NULL REFERENCES assessments(id) ON DELETE CASCADE,
-  question_key INTEGER NOT NULL,
-  question_text TEXT NOT NULL,
-  question_type TEXT NOT NULL DEFAULT 'likert',
-  scale INTEGER NOT NULL DEFAULT 5,
-  category TEXT NOT NULL,
-  reverse BOOLEAN NOT NULL DEFAULT FALSE,
-  options JSONB,
-  sort_order INTEGER NOT NULL DEFAULT 0,
-  UNIQUE(assessment_id, question_key)
-);
-
 -- ============================================================
 -- 5. COUPLE ASSESSMENT SCORING
 -- ============================================================
@@ -239,54 +201,6 @@ ALTER TABLE couple_results ADD COLUMN IF NOT EXISTS relationship_pattern_summary
 ALTER TABLE couple_results ADD COLUMN IF NOT EXISTS action_plan JSONB;
 ALTER TABLE couple_results ADD COLUMN IF NOT EXISTS conversation_scripts JSONB;
 ALTER TABLE couple_results ADD COLUMN IF NOT EXISTS couple_summary TEXT;
-
-CREATE TABLE IF NOT EXISTS assessment_couple_rules (
-  assessment_id TEXT PRIMARY KEY REFERENCES assessments(id) ON DELETE CASCADE,
-  scoring_version TEXT NOT NULL DEFAULT 'couple-v1',
-  average_weight NUMERIC(5,2) NOT NULL DEFAULT 0.40,
-  alignment_weight NUMERIC(5,2) NOT NULL DEFAULT 0.35,
-  floor_weight NUMERIC(5,2) NOT NULL DEFAULT 0.25,
-  high_gap_threshold NUMERIC(5,2) NOT NULL DEFAULT 25,
-  shared_strength_threshold NUMERIC(5,2) NOT NULL DEFAULT 70,
-  shared_growth_threshold NUMERIC(5,2) NOT NULL DEFAULT 55,
-  low_floor_threshold NUMERIC(5,2) NOT NULL DEFAULT 45,
-  notes TEXT
-);
-
-CREATE TABLE IF NOT EXISTS assessment_couple_dimension_rules (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  assessment_id TEXT NOT NULL REFERENCES assessments(id) ON DELETE CASCADE,
-  dimension_key TEXT NOT NULL,
-  label TEXT NOT NULL,
-  weight NUMERIC(6,2) NOT NULL DEFAULT 1,
-  priority TEXT NOT NULL DEFAULT 'balance' CHECK (priority IN ('strength','support','risk','balance')),
-  high_shared_text TEXT NOT NULL,
-  shared_gap_text TEXT NOT NULL,
-  asymmetry_text TEXT NOT NULL,
-  action_text TEXT NOT NULL,
-  guidance_order INTEGER NOT NULL DEFAULT 0,
-  UNIQUE(assessment_id, dimension_key)
-);
-
-CREATE TABLE IF NOT EXISTS couple_relationship_patterns (
-  pattern_key TEXT PRIMARY KEY,
-  title TEXT NOT NULL,
-  summary TEXT NOT NULL,
-  default_action TEXT NOT NULL,
-  default_script TEXT NOT NULL,
-  severity TEXT NOT NULL DEFAULT 'moderate' CHECK (severity IN ('low','moderate','high','critical')),
-  applicable_assessments TEXT[] NOT NULL DEFAULT '{}'
-);
-
-CREATE TABLE IF NOT EXISTS assessment_couple_pattern_rules (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  assessment_id TEXT NOT NULL REFERENCES assessments(id) ON DELETE CASCADE,
-  pattern_key TEXT NOT NULL REFERENCES couple_relationship_patterns(pattern_key) ON DELETE CASCADE,
-  match_type TEXT NOT NULL CHECK (match_type IN ('numeric','attachment-quadrant','values-profile','manual')),
-  rule_data JSONB NOT NULL DEFAULT '{}',
-  priority_order INTEGER NOT NULL DEFAULT 0,
-  UNIQUE(assessment_id, pattern_key, match_type)
-);
 
 -- ============================================================
 -- 6. ONBOARDING
@@ -310,44 +224,6 @@ CREATE TABLE IF NOT EXISTS onboarding_assessments (
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE(user_id, assessment_id)
-);
-
-CREATE TABLE IF NOT EXISTS onboarding_assessment_recommendation_rules (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  rule_key TEXT UNIQUE NOT NULL,
-  title TEXT NOT NULL,
-  assessment_ids TEXT[] NOT NULL DEFAULT '{}',
-  series_keys TEXT[] NOT NULL DEFAULT '{}',
-  min_score INTEGER NOT NULL DEFAULT 0,
-  max_score INTEGER NOT NULL DEFAULT 100,
-  match_type TEXT NOT NULL DEFAULT 'general',
-  priority_order INTEGER NOT NULL DEFAULT 100,
-  summary TEXT NOT NULL,
-  recommendation TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS onboarding_assessment_patterns (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  pattern_key TEXT UNIQUE NOT NULL,
-  title TEXT NOT NULL,
-  summary TEXT NOT NULL,
-  signal_rules JSONB NOT NULL DEFAULT '{}',
-  default_action TEXT NOT NULL,
-  default_script TEXT NOT NULL,
-  severity TEXT NOT NULL DEFAULT 'moderate'
-);
-
-CREATE TABLE IF NOT EXISTS onboarding_assessment_dimensions (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  assessment_id TEXT NOT NULL REFERENCES assessments(id) ON DELETE CASCADE,
-  dimension_key TEXT NOT NULL,
-  label TEXT NOT NULL,
-  description TEXT,
-  good_floor INTEGER NOT NULL DEFAULT 60,
-  concern_floor INTEGER NOT NULL DEFAULT 45,
-  recommendation TEXT NOT NULL,
-  sort_order INTEGER NOT NULL DEFAULT 1,
-  UNIQUE(assessment_id, dimension_key)
 );
 
 -- ============================================================
@@ -610,12 +486,7 @@ CREATE INDEX IF NOT EXISTS idx_couple_results_couple ON couple_results(couple_un
 CREATE INDEX IF NOT EXISTS idx_daily_check_ins_user ON daily_check_ins(user_id, date DESC);
 CREATE INDEX IF NOT EXISTS idx_learning_series_progress_user ON learning_series_progress(user_id, series_key);
 CREATE INDEX IF NOT EXISTS idx_learning_series_progress_couple ON learning_series_progress(couple_unit_id, series_key);
-CREATE INDEX IF NOT EXISTS idx_assessment_dimensions ON assessment_dimensions(assessment_id, sort_order);
-CREATE INDEX IF NOT EXISTS idx_assessment_bands ON assessment_bands(assessment_id, sort_order);
-CREATE INDEX IF NOT EXISTS idx_assessment_questions ON assessment_questions(assessment_id, category);
 CREATE INDEX IF NOT EXISTS idx_onboarding_user ON onboarding_assessments(user_id, completed DESC);
-CREATE INDEX IF NOT EXISTS idx_onboarding_rules_priority ON onboarding_assessment_recommendation_rules(priority_order);
-CREATE INDEX IF NOT EXISTS idx_couple_pattern ON assessment_couple_pattern_rules(assessment_id, priority_order);
 CREATE INDEX IF NOT EXISTS idx_learning_series_modules ON learning_series_modules(series_key, sort_order);
 
 -- ============================================================
@@ -654,17 +525,7 @@ ALTER TABLE webhook_events ENABLE ROW LEVEL SECURITY;
 ALTER TABLE activities ENABLE ROW LEVEL SECURITY;
 ALTER TABLE activity_completions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE assessments ENABLE ROW LEVEL SECURITY;
-ALTER TABLE assessment_dimensions ENABLE ROW LEVEL SECURITY;
-ALTER TABLE assessment_bands ENABLE ROW LEVEL SECURITY;
-ALTER TABLE assessment_questions ENABLE ROW LEVEL SECURITY;
-ALTER TABLE assessment_couple_rules ENABLE ROW LEVEL SECURITY;
-ALTER TABLE assessment_couple_dimension_rules ENABLE ROW LEVEL SECURITY;
-ALTER TABLE couple_relationship_patterns ENABLE ROW LEVEL SECURITY;
-ALTER TABLE assessment_couple_pattern_rules ENABLE ROW LEVEL SECURITY;
 ALTER TABLE onboarding_assessments ENABLE ROW LEVEL SECURITY;
-ALTER TABLE onboarding_assessment_recommendation_rules ENABLE ROW LEVEL SECURITY;
-ALTER TABLE onboarding_assessment_patterns ENABLE ROW LEVEL SECURITY;
-ALTER TABLE onboarding_assessment_dimensions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE learning_series ENABLE ROW LEVEL SECURITY;
 ALTER TABLE learning_series_modules ENABLE ROW LEVEL SECURITY;
 ALTER TABLE communication_analysis ENABLE ROW LEVEL SECURITY;
@@ -679,16 +540,6 @@ ALTER TABLE bucket_list ENABLE ROW LEVEL SECURITY;
 -- Public read policies (catalog data — safe to expose)
 CREATE POLICY p_users_read_public ON users FOR SELECT USING (true);
 CREATE POLICY p_assessments_read_public ON assessments FOR SELECT USING (true);
-CREATE POLICY p_assessment_dimensions_read_public ON assessment_dimensions FOR SELECT USING (true);
-CREATE POLICY p_assessment_bands_read_public ON assessment_bands FOR SELECT USING (true);
-CREATE POLICY p_assessment_questions_read_public ON assessment_questions FOR SELECT USING (true);
-CREATE POLICY p_couple_rules_read_public ON assessment_couple_rules FOR SELECT USING (true);
-CREATE POLICY p_couple_dim_rules_read_public ON assessment_couple_dimension_rules FOR SELECT USING (true);
-CREATE POLICY p_couple_patterns_read_public ON couple_relationship_patterns FOR SELECT USING (true);
-CREATE POLICY p_couple_pat_rules_read_public ON assessment_couple_pattern_rules FOR SELECT USING (true);
-CREATE POLICY p_onboarding_rules_read_public ON onboarding_assessment_recommendation_rules FOR SELECT USING (true);
-CREATE POLICY p_onboarding_patterns_read_public ON onboarding_assessment_patterns FOR SELECT USING (true);
-CREATE POLICY p_onboarding_dims_read_public ON onboarding_assessment_dimensions FOR SELECT USING (true);
 CREATE POLICY p_learning_series_read_public ON learning_series FOR SELECT USING (true);
 CREATE POLICY p_learning_modules_read_public ON learning_series_modules FOR SELECT USING (true);
 CREATE POLICY p_activities_read_public ON activities FOR SELECT USING (true);
@@ -1066,11 +917,7 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO authentic
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO authenticated;
 
 -- Signed-out clients may only read the public catalog (still filtered by RLS).
-GRANT SELECT ON activities, assessments, assessment_dimensions, assessment_bands,
-  assessment_questions, assessment_couple_rules, assessment_couple_dimension_rules,
-  couple_relationship_patterns, assessment_couple_pattern_rules,
-  onboarding_assessment_recommendation_rules, onboarding_assessment_patterns,
-  onboarding_assessment_dimensions, learning_series, learning_series_modules,
+GRANT SELECT ON activities, assessments, learning_series, learning_series_modules,
   check_in_topics TO anon;
 
 -- Tables created later in this schema get the same privileges automatically.
@@ -1338,3 +1185,144 @@ $$;
 
 REVOKE ALL ON FUNCTION get_couple_streak(UUID) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION get_couple_streak(UUID) TO authenticated;
+
+-- ============================================================
+-- CONTENT ARCHITECTURE (migration 011): editorial content
+-- ============================================================
+
+-- Learning modules carry their full lesson (same shape the app renders:
+-- content = { introduction, sections[{ title, body, research?, example?, tip? }], conclusion }).
+ALTER TABLE learning_series ADD COLUMN IF NOT EXISTS review_status TEXT NOT NULL DEFAULT 'draft';
+ALTER TABLE learning_series_modules ADD COLUMN IF NOT EXISTS description TEXT;
+ALTER TABLE learning_series_modules ADD COLUMN IF NOT EXISTS content JSONB;
+ALTER TABLE learning_series_modules ADD COLUMN IF NOT EXISTS key_takeaways JSONB NOT NULL DEFAULT '[]';
+ALTER TABLE learning_series_modules ADD COLUMN IF NOT EXISTS exercises JSONB NOT NULL DEFAULT '[]';
+ALTER TABLE learning_series_modules ADD COLUMN IF NOT EXISTS reflection JSONB;
+ALTER TABLE learning_series_modules ADD COLUMN IF NOT EXISTS frameworks TEXT[] NOT NULL DEFAULT '{}';
+ALTER TABLE learning_series_modules ADD COLUMN IF NOT EXISTS review_status TEXT NOT NULL DEFAULT 'draft';
+
+ALTER TABLE activities ADD COLUMN IF NOT EXISTS activity_key TEXT;
+ALTER TABLE activities ADD COLUMN IF NOT EXISTS framework TEXT;
+ALTER TABLE activities ADD COLUMN IF NOT EXISTS sort_order INTEGER NOT NULL DEFAULT 100;
+ALTER TABLE activities ADD COLUMN IF NOT EXISTS review_status TEXT NOT NULL DEFAULT 'draft';
+CREATE UNIQUE INDEX IF NOT EXISTS idx_activities_key ON activities(activity_key);
+
+ALTER TABLE daily_questions ADD COLUMN IF NOT EXISTS depth TEXT NOT NULL DEFAULT 'light';
+ALTER TABLE daily_questions ADD COLUMN IF NOT EXISTS sort_order INTEGER NOT NULL DEFAULT 1000;
+ALTER TABLE daily_questions ADD COLUMN IF NOT EXISTS review_status TEXT NOT NULL DEFAULT 'draft';
+CREATE UNIQUE INDEX IF NOT EXISTS idx_daily_questions_question ON daily_questions(question);
+
+ALTER TABLE check_in_topics ADD COLUMN IF NOT EXISTS topic_key TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_check_in_topics_key ON check_in_topics(topic_key);
+ALTER TABLE check_in_topics ADD COLUMN IF NOT EXISTS depth_level INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE check_in_topics ADD COLUMN IF NOT EXISTS framework TEXT;
+ALTER TABLE check_in_topics ADD COLUMN IF NOT EXISTS sort_order INTEGER NOT NULL DEFAULT 100;
+ALTER TABLE check_in_topics ADD COLUMN IF NOT EXISTS review_status TEXT NOT NULL DEFAULT 'draft';
+
+CREATE TABLE IF NOT EXISTS deep_dive_themes (
+  theme_key TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  summary TEXT NOT NULL,
+  framework TEXT,
+  focus_questions JSONB NOT NULL DEFAULT '[]',
+  weekly_activities JSONB NOT NULL DEFAULT '[]',
+  sort_order INTEGER NOT NULL DEFAULT 100,
+  review_status TEXT NOT NULL DEFAULT 'draft',
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+ALTER TABLE deep_dive_themes ENABLE ROW LEVEL SECURITY;
+
+-- Content is readable by signed-in users (catalog tables already had public read policies).
+DROP POLICY IF EXISTS p_daily_questions_read ON daily_questions;
+CREATE POLICY p_daily_questions_read ON daily_questions FOR SELECT USING ((SELECT auth.role()) = 'authenticated');
+DROP POLICY IF EXISTS p_deep_dive_themes_read ON deep_dive_themes;
+CREATE POLICY p_deep_dive_themes_read ON deep_dive_themes FOR SELECT USING ((SELECT auth.role()) = 'authenticated');
+
+-- ============================================================
+-- Couple-scoped progress for daily questions, check-in topics, deep dives
+-- ============================================================
+
+-- Daily questions: both partners answer the same question each day. A partner's answer
+-- becomes visible only once you've answered that question yourself (enforced here, not in the UI).
+ALTER TABLE daily_question_responses ADD COLUMN IF NOT EXISTS couple_unit_id UUID REFERENCES couple_units(id) ON DELETE CASCADE;
+CREATE INDEX IF NOT EXISTS idx_daily_question_responses_couple ON daily_question_responses(couple_unit_id, response_date);
+
+CREATE OR REPLACE FUNCTION has_answered_daily_question(q_id UUID, day DATE)
+RETURNS BOOLEAN
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM daily_question_responses r
+    WHERE r.user_id = (SELECT auth.uid()) AND r.question_id = q_id AND r.response_date = day
+  )
+$$;
+REVOKE ALL ON FUNCTION has_answered_daily_question(UUID, DATE) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION has_answered_daily_question(UUID, DATE) TO authenticated;
+
+ALTER TABLE daily_question_responses ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS p_daily_question_responses_select ON daily_question_responses;
+CREATE POLICY p_daily_question_responses_select ON daily_question_responses FOR SELECT USING (
+  (SELECT auth.uid()) = user_id
+  OR (
+    couple_unit_id IS NOT NULL
+    AND is_couple_member(couple_unit_id)
+    AND has_answered_daily_question(question_id, response_date)
+  )
+);
+DROP POLICY IF EXISTS p_daily_question_responses_insert ON daily_question_responses;
+CREATE POLICY p_daily_question_responses_insert ON daily_question_responses FOR INSERT WITH CHECK (
+  (SELECT auth.uid()) = user_id AND (couple_unit_id IS NULL OR is_couple_member(couple_unit_id))
+);
+DROP POLICY IF EXISTS p_daily_question_responses_update ON daily_question_responses;
+CREATE POLICY p_daily_question_responses_update ON daily_question_responses FOR UPDATE
+  USING ((SELECT auth.uid()) = user_id)
+  WITH CHECK ((SELECT auth.uid()) = user_id AND (couple_unit_id IS NULL OR is_couple_member(couple_unit_id)));
+
+-- Check-in topics: responses are shared with the couple.
+ALTER TABLE check_in_responses ENABLE ROW LEVEL SECURITY;
+CREATE INDEX IF NOT EXISTS idx_check_in_responses_couple ON check_in_responses(couple_unit_id, created_at DESC);
+DROP POLICY IF EXISTS p_check_in_responses_select ON check_in_responses;
+CREATE POLICY p_check_in_responses_select ON check_in_responses
+  FOR SELECT USING (is_couple_member(couple_unit_id));
+DROP POLICY IF EXISTS p_check_in_responses_insert ON check_in_responses;
+CREATE POLICY p_check_in_responses_insert ON check_in_responses
+  FOR INSERT WITH CHECK ((SELECT auth.uid()) = user_id AND is_couple_member(couple_unit_id));
+
+-- Learning progress: partners see each other's progress; a row can only be attached to the
+-- writer's own couple (previously any couple_unit_id was accepted).
+DROP POLICY IF EXISTS p_learning_series_progress_insert ON learning_series_progress;
+CREATE POLICY p_learning_series_progress_insert ON learning_series_progress
+  FOR INSERT WITH CHECK ((SELECT auth.uid()) = user_id AND (couple_unit_id IS NULL OR is_couple_member(couple_unit_id)));
+DROP POLICY IF EXISTS p_learning_series_progress_update ON learning_series_progress;
+CREATE POLICY p_learning_series_progress_update ON learning_series_progress
+  FOR UPDATE USING ((SELECT auth.uid()) = user_id)
+  WITH CHECK ((SELECT auth.uid()) = user_id AND (couple_unit_id IS NULL OR is_couple_member(couple_unit_id)));
+
+-- Monthly deep dives: one per couple per month, worked on together.
+CREATE TABLE IF NOT EXISTS couple_deep_dives (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  couple_unit_id UUID NOT NULL REFERENCES couple_units(id) ON DELETE CASCADE,
+  theme_key TEXT NOT NULL REFERENCES deep_dive_themes(theme_key),
+  month DATE NOT NULL,
+  completed_weeks INTEGER[] NOT NULL DEFAULT '{}',
+  reflection TEXT,
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'completed')),
+  created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (couple_unit_id, month)
+);
+ALTER TABLE couple_deep_dives ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS p_couple_deep_dives_select ON couple_deep_dives;
+CREATE POLICY p_couple_deep_dives_select ON couple_deep_dives
+  FOR SELECT USING (is_couple_member(couple_unit_id));
+DROP POLICY IF EXISTS p_couple_deep_dives_insert ON couple_deep_dives;
+CREATE POLICY p_couple_deep_dives_insert ON couple_deep_dives
+  FOR INSERT WITH CHECK (is_couple_member(couple_unit_id) AND (SELECT auth.uid()) = created_by);
+DROP POLICY IF EXISTS p_couple_deep_dives_update ON couple_deep_dives;
+CREATE POLICY p_couple_deep_dives_update ON couple_deep_dives
+  FOR UPDATE USING (is_couple_member(couple_unit_id)) WITH CHECK (is_couple_member(couple_unit_id));
+
+-- New tables get the standard privileges (the 008 default privileges also cover them).
+GRANT SELECT ON deep_dive_themes TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON couple_deep_dives TO authenticated;
+GRANT ALL ON deep_dive_themes, couple_deep_dives TO service_role;

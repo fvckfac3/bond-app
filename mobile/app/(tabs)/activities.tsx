@@ -11,7 +11,7 @@ import { supabase } from '../../services/supabase';
 import { colors, spacing, borderRadius, shadows, typography, touchTargets, motion } from '../../constants/theme';
 import FadeInView from '../../components/animated/FadeInView';
 import ScaleButton from '../../components/animated/ScaleButton';
-import { learningSeriesCatalog } from '../../content/series';
+import { fetchSeriesList } from '../../services/learning';
 import { useSubscription } from '../../hooks/useSubscription';
 import PaywallModal from '../../components/subscription/PaywallModal';
 
@@ -21,7 +21,6 @@ export default function ActivitiesScreen() {
   const [activities, setActivities] = useState([]);
   const [learningSeries, setLearningSeries] = useState([]);
   const [selectedActivity, setSelectedActivity] = useState(null);
-  const [selectedSeriesModule, setSelectedSeriesModule] = useState(null);
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [showPaywall, setShowPaywall] = useState(false);
 
@@ -41,16 +40,15 @@ export default function ActivitiesScreen() {
 
   async function fetchActivities() {
     try {
-      const [{ data: activityData, error: activityError }, { data: seriesData, error: seriesError }] = await Promise.all([
-        supabase.from('activities').select('*').order('created_at', { ascending: false }),
-        supabase.from('learning_series').select('*, learning_series_modules(*)').order('sort_order', { ascending: true }),
+      const [{ data: activityData, error: activityError }, seriesData] = await Promise.all([
+        supabase.from('activities').select('*').order('sort_order', { ascending: true }),
+        fetchSeriesList(),
       ]);
 
       if (activityError) throw activityError;
-      if (seriesError) throw seriesError;
 
       setActivities(activityData || []);
-      setLearningSeries(seriesData || []);
+      setLearningSeries(seriesData);
     } catch (error) {
       console.error('Error fetching activities:', error);
     } finally {
@@ -76,42 +74,8 @@ export default function ActivitiesScreen() {
     return icons[type] || '📝';
   }
 
-  const openSeriesModule = (module) => {
-    router.push({
-      pathname: '/learning/[seriesKey]/[moduleKey]',
-      params: {
-        seriesKey: module.series_key || module.seriesKey || 'relationship-foundations',
-        moduleKey: module.module_key || module.moduleKey || module.id,
-      },
-    });
-  };
-
-  const renderLearningModule = (module, index) => (
-    <FadeInView key={module.id} delay={index * motion.stagger}>
-      <TouchableOpacity
-        onPress={() => openSeriesModule(module)}
-        activeOpacity={0.92}
-      >
-        <Card style={styles.seriesModuleCard}>
-          <Card.Content>
-            <View style={styles.cardHeader}>
-              <Text style={styles.icon}>📚</Text>
-              <View style={styles.headerText}>
-                <Text style={styles.activityTitle}>{module.title}</Text>
-                <Chip mode="outlined" style={styles.typeChip} textStyle={styles.chipText}>
-                  {module.duration}
-                </Chip>
-              </View>
-            </View>
-            <Text style={styles.description}>{module.summary}</Text>
-          </Card.Content>
-        </Card>
-      </TouchableOpacity>
-    </FadeInView>
-  );
-
   const renderSeriesCard = (series, index) => (
-    <FadeInView key={series.key} delay={index * motion.stagger}>
+    <FadeInView key={series.series_key} delay={index * motion.stagger}>
       <Card style={styles.seriesCard}>
         <Card.Content>
           <Text style={styles.seriesBadge}>Series</Text>
@@ -121,7 +85,10 @@ export default function ActivitiesScreen() {
             <Chip style={styles.goldChip} textStyle={styles.goldChipText}>{series.modules.length} lessons</Chip>
             <Chip style={styles.roseChip} textStyle={styles.roseChipText}>{series.icon}</Chip>
           </View>
-          <ScaleButton onPress={() => openSeriesModule(series.modules[0])} style={styles.seriesButton}>
+          <ScaleButton
+            onPress={() => router.push({ pathname: '/learning/[seriesKey]', params: { seriesKey: series.series_key } })}
+            style={styles.seriesButton}
+          >
             <Text style={styles.seriesButtonText}>Open Series</Text>
           </ScaleButton>
         </Card.Content>
@@ -132,7 +99,7 @@ export default function ActivitiesScreen() {
   const renderSeriesSection = () => (
     <View style={styles.seriesSection}>
       <Text style={styles.sectionTitle}>Learning Series</Text>
-      {learningSeriesCatalog.map(renderSeriesCard)}
+      {learningSeries.map(renderSeriesCard)}
     </View>
   );
 
@@ -291,34 +258,6 @@ export default function ActivitiesScreen() {
               >
                 <Text style={styles.closeButtonText}>Close</Text>
               </TouchableOpacity>
-            </Card.Content>
-          </Card>
-        </Modal>
-      </Portal>
-
-      {/* Series Module Detail Modal */}
-      <Portal>
-        <Modal
-          visible={!!selectedSeriesModule}
-          onDismiss={() => setSelectedSeriesModule(null)}
-          contentContainerStyle={styles.modalContent}
-        >
-          <Card style={styles.modalCard}>
-            <Card.Content>
-              <Text style={styles.modalIcon}>📚</Text>
-              <Text style={styles.modalTitle}>{selectedSeriesModule?.title}</Text>
-              <Text style={styles.modalDescription}>{selectedSeriesModule?.summary}</Text>
-              <Divider style={styles.divider} />
-              {selectedSeriesModule?.description && (
-                <Text style={styles.contentText}>{selectedSeriesModule.description}</Text>
-              )}
-              <Text style={styles.contentText}>{selectedSeriesModule?.title} is part of the Relationship Foundations series.</Text>
-              <ScaleButton
-                onPress={() => setSelectedSeriesModule(null)}
-                style={styles.startButton}
-              >
-                <Text style={styles.startButtonText}>Close</Text>
-              </ScaleButton>
             </Card.Content>
           </Card>
         </Modal>
@@ -580,14 +519,6 @@ const styles = StyleSheet.create({
     color: '#0F1512',
     fontWeight: '700',
     fontSize: typography.body.fontSize,
-  },
-  seriesModuleCard: {
-    marginBottom: spacing.md,
-    borderRadius: borderRadius.md,
-    ...shadows.sm,
-    backgroundColor: '#151D19',
-    borderWidth: 1,
-    borderColor: 'rgba(201, 147, 60, 0.12)',
   },
   sectionTitle: {
     fontSize: typography.h3.fontSize,

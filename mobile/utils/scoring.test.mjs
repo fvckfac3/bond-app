@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { allAssessments, assessmentQuestionBanks } from './allAssessments.js';
 import { calculateAssessmentProfile, getAssessmentScoringConfig } from './assessmentEngine.js';
+import { calculateCoupleAssessmentResult, hasCoupleRules } from './coupleAssessment.js';
 
 // Answer every item the way a person with the healthiest (or least healthy) pattern
 // would. Reverse-keyed items and 'risk' dimensions (higher raw = more of a problem)
@@ -71,3 +72,18 @@ test('no question text contains stray non-English characters', () => {
     for (const q of questions) assert.ok(!/[㐀-鿿]/.test(q.text), `${id}/${q.id}`);
   }
 });
+
+for (const assessment of allAssessments) {
+  test(`${assessment.id}: has couple rules and produces a couple result`, () => {
+    assert.ok(hasCoupleRules(assessment.id), 'missing couple weighting/actions');
+    const result = calculateCoupleAssessmentResult(
+      assessment.id,
+      answersFor(assessment.id, true),
+      answersFor(assessment.id, false),
+    );
+    assert.ok(Number.isFinite(result.compatibilityScore));
+    assert.ok(result.comparisons.length > 0);
+    assert.ok(result.actionPlan.length >= 2);
+    assert.ok(result.coupleSummary);
+  });
+}

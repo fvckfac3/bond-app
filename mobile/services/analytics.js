@@ -115,6 +115,9 @@ export const AnalyticsEvents = {
   ACTIVITY_STARTED: 'activity_started',
   ACTIVITY_COMPLETED: 'activity_completed',
   ACTIVITY_SHARED: 'activity_shared',
+
+  // Learning
+  LEARNING_MODULE_COMPLETED: 'learning_module_completed',
   
   // Messages
   MESSAGE_SENT: 'message_sent',
