@@ -8,9 +8,8 @@
 --   * signup trigger, private users table, server-side pairing, paired-results gate,
 --     check-in columns and policies
 --   * table privileges for anon/authenticated/service_role (live had none at all)
--- Every statement is sections copied verbatim from bond_schema.sql, in order.
--- Safe to re-run except the analyzer/status_checks CREATE POLICY lines, which assume
--- those tables are new.
+-- Sections are copied from bond_schema.sql, in order. Safe to re-run: every
+-- statement is IF NOT EXISTS / OR REPLACE / DROP ... IF EXISTS first.
 
 -- ============================================================================
 -- ANALYZER RESULTS TABLES (migrated from MongoDB → Supabase)
@@ -106,10 +105,15 @@ ALTER TABLE emotional_pattern_analyses ENABLE ROW LEVEL SECURITY;
 
 -- Users can read their couple's analyzer results. No client INSERT policy: results are
 -- written only by the backend (service role, which bypasses RLS) after a pairing check.
+DROP POLICY IF EXISTS analyzer_select ON communication_analyses;
 CREATE POLICY analyzer_select ON communication_analyses FOR SELECT USING (couple_id IN (SELECT id FROM couple_units WHERE user1_id = auth.uid() OR user2_id = auth.uid()));
+DROP POLICY IF EXISTS analyzer_select ON text_analyses;
 CREATE POLICY analyzer_select ON text_analyses FOR SELECT USING (couple_id IN (SELECT id FROM couple_units WHERE user1_id = auth.uid() OR user2_id = auth.uid()));
+DROP POLICY IF EXISTS analyzer_select ON argument_analyses;
 CREATE POLICY analyzer_select ON argument_analyses FOR SELECT USING (couple_id IN (SELECT id FROM couple_units WHERE user1_id = auth.uid() OR user2_id = auth.uid()));
+DROP POLICY IF EXISTS analyzer_select ON voice_tone_analyses;
 CREATE POLICY analyzer_select ON voice_tone_analyses FOR SELECT USING (couple_id IN (SELECT id FROM couple_units WHERE user1_id = auth.uid() OR user2_id = auth.uid()));
+DROP POLICY IF EXISTS analyzer_select ON emotional_pattern_analyses;
 CREATE POLICY analyzer_select ON emotional_pattern_analyses FOR SELECT USING (couple_id IN (SELECT id FROM couple_units WHERE user1_id = auth.uid() OR user2_id = auth.uid()));
 
 -- ============================================================================
@@ -124,7 +128,9 @@ CREATE TABLE IF NOT EXISTS status_checks (
 
 -- Public read, authenticated write
 ALTER TABLE status_checks ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS status_checks_select ON status_checks;
 CREATE POLICY status_checks_select ON status_checks FOR SELECT USING (true);
+DROP POLICY IF EXISTS status_checks_insert ON status_checks;
 CREATE POLICY status_checks_insert ON status_checks FOR INSERT WITH CHECK (auth.role() = 'authenticated');
 
 -- ============================================================
