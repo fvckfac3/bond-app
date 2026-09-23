@@ -46,12 +46,14 @@ export default function BucketListScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [items, setItems] = useState<BucketListItem[]>([]);
-  const [filter, setFilter] = useState<'all' | 'pending' | 'completed'>('all');
+  const [filter, setFilter] = useState<'all' | 'pending' | 'completed' | 'archived'>('all');
   const [showAddModal, setShowAddModal] = useState(false);
   const [coupleUnitId, setCoupleUnitId] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
   const [notPaired, setNotPaired] = useState(false);
-  const [newItem, setNewItem] = useState({ title: '', description: '', category: 'adventure' as BucketListItem['category'], priority: 'medium' as BucketListItem['priority'], estimated_cost: '', target_date: '' });
+  const emptyForm = { title: '', description: '', category: 'adventure' as BucketListItem['category'], priority: 'medium' as BucketListItem['priority'], estimated_cost: '', target_date: '', status: 'pending' as BucketListItem['status'] };
+  const [newItem, setNewItem] = useState(emptyForm);
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   useEffect(() => { loadItems(); }, []);
 
@@ -124,7 +126,27 @@ export default function BucketListScreen() {
     }
   }
 
-  async function addItem() {
+  function openAdd() {
+    setEditingId(null);
+    setNewItem(emptyForm);
+    setShowAddModal(true);
+  }
+
+  function openEdit(item: BucketListItem) {
+    setEditingId(item.id);
+    setNewItem({
+      title: item.title,
+      description: item.description ?? '',
+      category: item.category,
+      priority: item.priority,
+      estimated_cost: item.estimated_cost ?? '',
+      target_date: item.target_date ?? '',
+      status: item.status,
+    });
+    setShowAddModal(true);
+  }
+
+  async function saveItem() {
     if (!newItem.title.trim()) return;
     if (!coupleUnitId || !userId) {
       Alert.alert('Partner Required', 'Connect with your partner to start your shared bucket list.');
@@ -135,21 +157,25 @@ export default function BucketListScreen() {
       return;
     }
 
-    const { data, error } = await supabase
-      .from('bucket_list')
-      .insert({
-        couple_unit_id: coupleUnitId,
-        user_id: userId,
-        title: newItem.title.trim(),
-        description: newItem.description.trim() || null,
-        category: newItem.category,
-        priority: PRIORITY_TO_DB[newItem.priority],
-        estimated_cost: newItem.estimated_cost.trim() || null,
-        target_date: newItem.target_date || null,
-        status: 'pending',
-      })
-      .select()
-      .single();
+    const existing = items.find((i) => i.id === editingId);
+    const fields = {
+      title: newItem.title.trim(),
+      description: newItem.description.trim() || null,
+      category: newItem.category,
+      priority: PRIORITY_TO_DB[newItem.priority],
+      estimated_cost: newItem.estimated_cost.trim() || null,
+      target_date: newItem.target_date || null,
+      status: newItem.status,
+      // Keep the original completion date; set it when an item is first marked done.
+      completed_date: newItem.status === 'completed'
+        ? existing?.completed_date ?? new Date().toISOString().split('T')[0]
+        : null,
+    };
+
+    const query = editingId
+      ? supabase.from('bucket_list').update(fields).eq('id', editingId)
+      : supabase.from('bucket_list').insert({ ...fields, couple_unit_id: coupleUnitId, user_id: userId });
+    const { data, error } = await query.select().single();
 
     if (error) {
       console.error('Error saving bucket list item:', error);
@@ -157,14 +183,37 @@ export default function BucketListScreen() {
       return;
     }
 
-    setItems([...items, toItem(data)]);
+    const saved = toItem(data);
+    setItems(editingId ? items.map((i) => (i.id === saved.id ? saved : i)) : [...items, saved]);
     setShowAddModal(false);
-    setNewItem({ title: '', description: '', category: 'adventure', priority: 'medium', estimated_cost: '', target_date: '' });
+  }
+
+  function confirmDelete() {
+    if (!editingId) return;
+    const id = editingId;
+    Alert.alert('Delete this goal?', 'It will be removed for both of you. To keep it out of the way instead, set it to Archived.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: async () => {
+          const { error } = await supabase.from('bucket_list').delete().eq('id', id);
+          if (error) {
+            console.error('Error deleting bucket list item:', error);
+            Alert.alert('Error', 'Could not delete this goal. Please try again.');
+            return;
+          }
+          setItems(items.filter((i) => i.id !== id));
+          setShowAddModal(false);
+        },
+      },
+    ]);
   }
 
   const filteredItems = items.filter(item => {
     if (filter === 'pending') return item.status === 'pending' || item.status === 'in_progress';
     if (filter === 'completed') return item.status === 'completed';
+    if (filter === 'archived') return item.status === 'archived';
     return item.status !== 'archived';
   });
 
@@ -192,7 +241,7 @@ export default function BucketListScreen() {
           <FadeInView>
             <View style={styles.header}>
               <Text style={styles.greeting}>Bucket List 🌟</Text>
-              <Text style={styles.subgreeting}>Goals, dreams, and adventures to shared</Text>
+              <Text style={styles.subgreeting}>Goals, dreams, and adventures to share</Text>
             </View>
           </FadeInView>
         </LinearGradient>
@@ -212,7 +261,7 @@ export default function BucketListScreen() {
           {/* Filters */}
           <FadeInView delay={150}>
             <View style={styles.filterRow}>
-              {(['all', 'pending', 'completed'] as const).map(f => (
+              {(['all', 'pending', 'completed', 'archived'] as const).map(f => (
                 <TouchableOpacity key={f} onPress={() => setFilter(f)} style={[styles.filterButton, filter === f && styles.filterButtonActive]}>
                   <Text style={[styles.filterText, filter === f && styles.filterTextActive]}>{f.charAt(0).toUpperCase() + f.slice(1)}</Text>
                 </TouchableOpacity>
@@ -235,7 +284,7 @@ export default function BucketListScreen() {
                         </View>
                       </MotiView>
                     </TouchableOpacity>
-                    <View style={styles.itemContent}>
+                    <TouchableOpacity activeOpacity={0.8} onPress={() => openEdit(item)} style={styles.itemContent}>
                       <View style={styles.itemHeader}>
                         <Text style={[styles.itemTitle, isCompleted && styles.itemTitleCompleted]}>{item.title}</Text>
                         <View style={[styles.priorityDot, { backgroundColor: PRIORITY_COLORS[item.priority]}]} />
@@ -249,7 +298,7 @@ export default function BucketListScreen() {
                         {item.estimated_cost && <Text style={styles.cost}>💰 {item.estimated_cost}</Text>}
                         <Text style={styles.status}>{STATUS_LABELS[item.status]}</Text>
                       </View>
-                    </View>
+                    </TouchableOpacity>
                   </View>
                 </StaggerItem>
               );
@@ -257,11 +306,11 @@ export default function BucketListScreen() {
           </StaggerContainer>
 
           {filteredItems.length === 0 && (
-            <FadeInView><View style={styles.emptyState}><Text style={styles.emptyIcon}>🎯</Text><Text style={styles.emptyTitle}>{notPaired ? 'Connect with your partner' : 'No items yet'}</Text><Text style={styles.emptySubtitle}>{notPaired ? 'Your bucket list is shared with your partner.' : 'Add your first shared goal!'}</Text></View></FadeInView>
+            <FadeInView><View style={styles.emptyState}><Text style={styles.emptyIcon}>🎯</Text><Text style={styles.emptyTitle}>{notPaired ? 'Connect with your partner' : filter === 'archived' ? 'Nothing archived' : 'No items yet'}</Text><Text style={styles.emptySubtitle}>{notPaired ? 'Your bucket list is shared with your partner.' : 'Add your first shared goal!'}</Text></View></FadeInView>
           )}
 
           <FadeInView delay={200}>
-            <ScaleButton onPress={() => setShowAddModal(true)} style={styles.addButton}>
+            <ScaleButton onPress={openAdd} style={styles.addButton}>
               <LinearGradient colors={[colors.accent, '#D4778A']} style={styles.addButtonGradient}><Text style={styles.addButtonText}>+ Add Goal</Text></LinearGradient>
             </ScaleButton>
           </FadeInView>
@@ -270,11 +319,36 @@ export default function BucketListScreen() {
 
       <Modal visible={showAddModal} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Add to Bucket List</Text>
+          <ScrollView style={styles.modalContent} contentContainerStyle={styles.modalScroll} keyboardShouldPersistTaps="handled">
+            <Text style={styles.modalTitle}>{editingId ? 'Edit Goal' : 'Add to Bucket List'}</Text>
             <TextInput style={styles.input} placeholder="What do you want to achieve together?" placeholderTextColor={colors.gray} value={newItem.title} onChangeText={t => setNewItem({ ...newItem, title: t })} />
             <TextInput style={styles.input} placeholder="Description (optional)..." placeholderTextColor={colors.gray} value={newItem.description} onChangeText={t => setNewItem({ ...newItem, description: t })} />
             <TextInput style={styles.input} placeholder="Estimated cost (optional)..." placeholderTextColor={colors.gray} value={newItem.estimated_cost} onChangeText={t => setNewItem({ ...newItem, estimated_cost: t })} />
+            <TextInput style={styles.input} placeholder="Target date, YYYY-MM-DD (optional)..." placeholderTextColor={colors.gray} value={newItem.target_date} onChangeText={t => setNewItem({ ...newItem, target_date: t })} />
+
+            <Text style={styles.fieldLabel}>Priority</Text>
+            <View style={styles.typeSelector}>
+              {(['high', 'medium', 'low'] as const).map(p => (
+                <TouchableOpacity key={p} onPress={() => setNewItem({ ...newItem, priority: p })} style={[styles.typeOption, newItem.priority === p && { backgroundColor: PRIORITY_COLORS[p] + '20', borderColor: PRIORITY_COLORS[p] }]}>
+                  <Text style={styles.typeLabel}>{p.charAt(0).toUpperCase() + p.slice(1)}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            {editingId ? (
+              <>
+                <Text style={styles.fieldLabel}>Status</Text>
+                <View style={styles.typeSelector}>
+                  {(Object.keys(STATUS_LABELS) as BucketListItem['status'][]).map(st => (
+                    <TouchableOpacity key={st} onPress={() => setNewItem({ ...newItem, status: st })} style={[styles.typeOption, newItem.status === st && { backgroundColor: colors.accent + '20', borderColor: colors.accent }]}>
+                      <Text style={styles.typeLabel}>{STATUS_LABELS[st]}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </>
+            ) : null}
+
+            <Text style={styles.fieldLabel}>Category</Text>
 
             <View style={styles.typeSelector}>
               {Object.entries(CATEGORIES).map(([cat, info]) => (
@@ -286,9 +360,14 @@ export default function BucketListScreen() {
 
             <View style={styles.modalButtons}>
               <ScaleButton onPress={() => setShowAddModal(false)} variant="secondary" style={{ flex: 1, marginRight: spacing.sm }}><Text style={styles.cancelButtonText}>Cancel</Text></ScaleButton>
-              <ScaleButton onPress={addItem} style={{ flex: 1 }}><Text style={styles.saveButtonText}>Add Goal</Text></ScaleButton>
+              <ScaleButton onPress={saveItem} style={{ flex: 1 }}><Text style={styles.saveButtonText}>{editingId ? 'Save' : 'Add Goal'}</Text></ScaleButton>
             </View>
-          </View>
+            {editingId ? (
+              <TouchableOpacity onPress={confirmDelete} style={styles.deleteButton}>
+                <Text style={styles.deleteText}>Delete goal</Text>
+              </TouchableOpacity>
+            ) : null}
+          </ScrollView>
         </View>
       </Modal>
     </SafeAreaView>
@@ -337,7 +416,7 @@ const styles = StyleSheet.create({
   addButtonGradient: { padding: spacing.md, alignItems: 'center' },
   addButtonText: { color: colors.white, fontSize: 16, fontWeight: 'bold' },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
-  modalContent: { backgroundColor: colors.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: spacing.lg },
+  modalContent: { backgroundColor: colors.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: spacing.lg, maxHeight: '90%' },
   modalTitle: { fontSize: 20, fontWeight: 'bold', color: colors.primary, marginBottom: spacing.lg, textAlign: 'center' },
   input: { backgroundColor: colors.background, borderRadius: 12, padding: spacing.md, fontSize: 14, color: colors.primary, marginBottom: spacing.sm },
   typeSelector: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginBottom: spacing.lg },
@@ -345,6 +424,10 @@ const styles = StyleSheet.create({
   typeIcon: { fontSize: 14, marginRight: spacing.xs / 2 },
   typeLabel: { fontSize: 11, color: colors.gray },
   modalButtons: { flexDirection: 'row' },
+  modalScroll: { paddingBottom: spacing.xl },
+  fieldLabel: { fontSize: 12, fontWeight: '700', color: colors.gray, marginBottom: spacing.xs, textTransform: 'uppercase' },
+  deleteButton: { marginTop: spacing.md, alignItems: 'center', padding: spacing.sm },
+  deleteText: { color: colors.error, fontWeight: '600' },
   cancelButtonText: { color: colors.gray, fontSize: 14, fontWeight: '600', textAlign: 'center' },
   saveButtonText: { color: colors.white, fontSize: 14, fontWeight: '600', textAlign: 'center' },
 });

@@ -22,7 +22,7 @@
       "bundleIdentifier": "com.bond.app",
       "infoPlist": {
         "NSCameraUsageDescription": "BOND needs camera access to take photos for your profile.",
-        "NSPhotoLibraryUsageDescription": "BOND needs photo library access to select profile pictures."
+        "NSPhotoLibraryUsageDescription": "BOND uses your photo library so you can add photos to your shared Memory Lane."
       }
     },
     "android": {
@@ -57,6 +57,14 @@
           "color": "#3D1A4F",
           "sounds": [],
           "mode": "production"
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "BOND uses your photo library so you can add photos to your shared Memory Lane.",
+          "cameraPermission": false,
+          "microphonePermission": false
         }
       ]
     ],

@@ -2,11 +2,13 @@
 // Built following: animation-patterns, polish, mobile-design, shadows, ui-ux-patterns
 
 import { useState, useEffect } from 'react';
-import { View, StyleSheet, Text, ScrollView, Dimensions } from 'react-native';
-import { Card } from 'react-native-paper';
+import { View, StyleSheet, Text, ScrollView, Dimensions, TouchableOpacity } from 'react-native';
+import { Card, ProgressBar } from 'react-native-paper';
+import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { supabase } from '../../services/supabase';
+import { fetchCompletedModules, fetchSeriesList } from '../../services/learning';
 import { colors, spacing, borderRadius, shadows, typography, touchTargets, motion } from '../../constants/theme';
 import FadeInView from '../../components/animated/FadeInView';
 
@@ -24,6 +26,8 @@ export default function ProgressScreen() {
     longestStreak: 0,
   });
   const [recentCheckIns, setRecentCheckIns] = useState([]);
+  const [learning, setLearning] = useState<{ key: string; title: string; icon: string | null; done: number; total: number }[]>([]);
+  const router = useRouter();
 
   useEffect(() => {
     fetchProgressData();
@@ -97,6 +101,24 @@ export default function ProgressScreen() {
       });
 
       setRecentCheckIns(checkInsData || []);
+
+      // Learning progress is per person; show the series you've started.
+      try {
+        const [series, completed] = await Promise.all([fetchSeriesList(), fetchCompletedModules(user.id)]);
+        setLearning(
+          series
+            .map((sr) => ({
+              key: sr.series_key,
+              title: sr.title,
+              icon: sr.icon,
+              done: sr.modules.filter((m) => completed[sr.series_key]?.has(m.module_key)).length,
+              total: sr.modules.length,
+            }))
+            .filter((sr) => sr.done > 0)
+        );
+      } catch (learningError) {
+        console.error('Error fetching learning progress:', learningError);
+      }
     } catch (error) {
       console.error('Error fetching progress:', error);
     } finally {
@@ -206,6 +228,34 @@ export default function ProgressScreen() {
           </Card>
         </FadeInView>
 
+        {/* Learning */}
+        <FadeInView delay={270}>
+          <Card style={styles.card}>
+            <Card.Content>
+              <Text style={styles.cardTitle}>Learning</Text>
+              {learning.length === 0 ? (
+                <TouchableOpacity onPress={() => router.push('/(tabs)/activities')}>
+                  <Text style={styles.learningEmpty}>You haven&apos;t finished a lesson yet. Browse the learning series →</Text>
+                </TouchableOpacity>
+              ) : (
+                learning.map((sr) => (
+                  <TouchableOpacity
+                    key={sr.key}
+                    style={styles.learningRow}
+                    onPress={() => router.push({ pathname: '/learning/[seriesKey]', params: { seriesKey: sr.key } })}
+                  >
+                    <View style={styles.learningHeader}>
+                      <Text style={styles.learningTitle}>{sr.icon} {sr.title}</Text>
+                      <Text style={styles.learningCount}>{sr.done} of {sr.total}</Text>
+                    </View>
+                    <ProgressBar progress={sr.total ? sr.done / sr.total : 0} color={colors.accent} style={styles.learningBar} />
+                  </TouchableOpacity>
+                ))
+              )}
+            </Card.Content>
+          </Card>
+        </FadeInView>
+
         {/* Recent Check-Ins */}
         {recentCheckIns.length > 0 && (
           <FadeInView delay={300}>
@@ -298,6 +348,32 @@ export default function ProgressScreen() {
 }
 
 const styles = StyleSheet.create({
+  learningEmpty: {
+    fontSize: typography.body.fontSize,
+    color: colors.accent,
+  },
+  learningRow: {
+    marginBottom: spacing.md,
+  },
+  learningHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: spacing.xs,
+  },
+  learningTitle: {
+    fontSize: typography.body.fontSize,
+    fontWeight: '600',
+    color: colors.primary,
+  },
+  learningCount: {
+    fontSize: typography.bodySmall.fontSize,
+    color: colors.gray,
+  },
+  learningBar: {
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: colors.lightGray,
+  },
   container: {
     flex: 1,
     backgroundColor: colors.background,

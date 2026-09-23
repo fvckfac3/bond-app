@@ -146,6 +146,9 @@ export default function ActivitiesScreen() {
           <Text style={styles.headerSubtitle}>
             Strengthen your bond through meaningful activities
           </Text>
+          <TouchableOpacity onPress={() => router.push('/activity-history')} accessibilityRole="link">
+            <Text style={styles.historyLink}>View your activity history →</Text>
+          </TouchableOpacity>
         </View>
       </LinearGradient>
 
@@ -295,6 +298,12 @@ const styles = StyleSheet.create({
     fontSize: typography.body.fontSize,
     color: '#D3C5B5',
     lineHeight: typography.body.lineHeight,
+  },
+  historyLink: {
+    marginTop: spacing.sm,
+    fontSize: typography.bodySmall.fontSize,
+    color: colors.gold,
+    fontWeight: '700',
   },
   categoryScroll: {
     maxHeight: 52,

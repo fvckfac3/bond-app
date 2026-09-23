@@ -1326,3 +1326,38 @@ CREATE POLICY p_couple_deep_dives_update ON couple_deep_dives
 GRANT SELECT ON deep_dive_themes TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON couple_deep_dives TO authenticated;
 GRANT ALL ON deep_dive_themes, couple_deep_dives TO service_role;
+
+-- ============================================================
+-- MEMORY LANE PHOTOS (migration 014): private bucket, couple-only access
+-- ============================================================
+
+INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+VALUES ('memory-photos', 'memory-photos', FALSE, 10485760, ARRAY['image/jpeg', 'image/png', 'image/webp', 'image/heic'])
+ON CONFLICT (id) DO UPDATE SET
+  public = FALSE,
+  file_size_limit = EXCLUDED.file_size_limit,
+  allowed_mime_types = EXCLUDED.allowed_mime_types;
+
+-- The couple a photo belongs to = the first folder of its path; NULL when that isn't a UUID,
+-- so a malformed path fails the policy instead of raising a cast error.
+CREATE OR REPLACE FUNCTION public.memory_photo_couple(object_name TEXT)
+RETURNS UUID
+LANGUAGE sql IMMUTABLE SET search_path = public AS $$
+  SELECT CASE
+    WHEN split_part(object_name, '/', 1) ~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+    THEN split_part(object_name, '/', 1)::uuid
+  END
+$$;
+GRANT EXECUTE ON FUNCTION public.memory_photo_couple(TEXT) TO authenticated;
+
+DROP POLICY IF EXISTS memory_photos_select ON storage.objects;
+CREATE POLICY memory_photos_select ON storage.objects FOR SELECT TO authenticated
+  USING (bucket_id = 'memory-photos' AND public.is_couple_member(public.memory_photo_couple(name)));
+
+DROP POLICY IF EXISTS memory_photos_insert ON storage.objects;
+CREATE POLICY memory_photos_insert ON storage.objects FOR INSERT TO authenticated
+  WITH CHECK (bucket_id = 'memory-photos' AND public.is_couple_member(public.memory_photo_couple(name)));
+
+DROP POLICY IF EXISTS memory_photos_delete ON storage.objects;
+CREATE POLICY memory_photos_delete ON storage.objects FOR DELETE TO authenticated
+  USING (bucket_id = 'memory-photos' AND public.is_couple_member(public.memory_photo_couple(name)));

@@ -2,16 +2,23 @@
  * MemoryLaneScreen - Timeline of shared memories
  */
 import { useState, useEffect } from 'react';
-import { View, StyleSheet, Text, ScrollView, TouchableOpacity, RefreshControl, Alert, Modal, TextInput } from 'react-native';
+import { View, StyleSheet, Text, ScrollView, TouchableOpacity, RefreshControl, Alert, Modal, TextInput, Image, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MotiView } from 'moti';
 import { LinearGradient } from 'expo-linear-gradient';
+import * as ImagePicker from 'expo-image-picker';
 
 import FadeInView, { StaggerContainer, StaggerItem } from '../../../components/animated/FadeInView';
 import ScaleButton from '../../../components/animated/ScaleButton';
 import SkeletonLoader from '../../../components/animated/SkeletonLoader';
 import { colors, spacing, shadows } from '../../../constants/theme';
 import { supabase } from '../../../services/supabase';
+import { trackEvent, AnalyticsEvents } from '../../../services/analytics';
+
+// Photos live in the private `memory-photos` bucket at `<couple_unit_id>/<file>` (migration 014);
+// memory_lane.photo_url holds that path and the app shows it through a short-lived signed URL.
+const PHOTO_BUCKET = 'memory-photos';
+const SIGNED_URL_SECONDS = 60 * 60;
 
 interface Memory {
   id: string;
@@ -19,7 +26,8 @@ interface Memory {
   description?: string;
   memory_date: string;
   memory_type: 'milestone' | 'moment' | 'date' | 'achievement' | 'other';
-  photos?: string[];
+  photoPath?: string;
+  photoUrl?: string;
   location?: string;
   tags?: string[];
 }
@@ -41,7 +49,14 @@ export default function MemoryLaneScreen() {
   const [coupleUnitId, setCoupleUnitId] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
   const [notPaired, setNotPaired] = useState(false);
-  const [newMemory, setNewMemory] = useState({ title: '', description: '', memory_date: '', memory_type: 'moment' as Memory['memory_type'], location: '' });
+  const emptyForm = { title: '', description: '', memory_date: '', memory_type: 'moment' as Memory['memory_type'], location: '' };
+  const [newMemory, setNewMemory] = useState(emptyForm);
+  // Editing: the memory being edited (null = adding). Photo: a newly picked local image, or
+  // removePhoto to clear the existing one.
+  const [editing, setEditing] = useState<Memory | null>(null);
+  const [pickedPhoto, setPickedPhoto] = useState<ImagePicker.ImagePickerAsset | null>(null);
+  const [removePhoto, setRemovePhoto] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     loadMemories();
@@ -55,7 +70,7 @@ export default function MemoryLaneScreen() {
       description: row.description ?? undefined,
       memory_date: row.memory_date,
       memory_type: row.category ?? 'other',
-      photos: row.photo_url ? [row.photo_url] : [],
+      photoPath: row.photo_url ?? undefined,
       location: row.location ?? undefined,
       tags: row.tags ?? [],
     };
@@ -88,7 +103,7 @@ export default function MemoryLaneScreen() {
         .order('memory_date', { ascending: false });
       if (error) throw error;
 
-      const list = (data || []).map(toMemory);
+      const list = await withPhotoUrls((data || []).map(toMemory));
       setMemories(list);
       organizeTimeline(list);
     } catch (error) {
@@ -98,6 +113,18 @@ export default function MemoryLaneScreen() {
       setLoading(false);
       setRefreshing(false);
     }
+  }
+
+  async function withPhotoUrls(list: Memory[]): Promise<Memory[]> {
+    const paths = list.map((m) => m.photoPath).filter(Boolean) as string[];
+    if (!paths.length) return list;
+    const { data, error } = await supabase.storage.from(PHOTO_BUCKET).createSignedUrls(paths, SIGNED_URL_SECONDS);
+    if (error) {
+      console.error('Error signing photo URLs:', error);
+      return list;
+    }
+    const urls = new Map((data || []).map((d) => [d.path, d.signedUrl]));
+    return list.map((m) => (m.photoPath ? { ...m, photoUrl: urls.get(m.photoPath) ?? undefined } : m));
   }
 
   function organizeTimeline(memoryList: Memory[]) {
@@ -117,7 +144,53 @@ export default function MemoryLaneScreen() {
     loadMemories();
   }
 
-  async function addMemory() {
+  function openAdd() {
+    setEditing(null);
+    setNewMemory(emptyForm);
+    setPickedPhoto(null);
+    setRemovePhoto(false);
+    setShowAddModal(true);
+  }
+
+  function openEdit(memory: Memory) {
+    setEditing(memory);
+    setNewMemory({
+      title: memory.title,
+      description: memory.description ?? '',
+      memory_date: memory.memory_date,
+      memory_type: memory.memory_type,
+      location: memory.location ?? '',
+    });
+    setPickedPhoto(null);
+    setRemovePhoto(false);
+    setShowAddModal(true);
+  }
+
+  async function pickPhoto() {
+    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.7, allowsEditing: true });
+    if (!result.canceled && result.assets?.length) {
+      setPickedPhoto(result.assets[0]);
+      setRemovePhoto(false);
+    }
+  }
+
+  async function uploadPhoto(asset: ImagePicker.ImagePickerAsset): Promise<string> {
+    const contentType = asset.mimeType || 'image/jpeg';
+    const ext = contentType.split('/')[1]?.replace('jpeg', 'jpg') || 'jpg';
+    const path = `${coupleUnitId}/${Date.now()}-${Math.random().toString(36).slice(2, 10)}.${ext}`;
+    const body = await (await fetch(asset.uri)).arrayBuffer();
+    const { error } = await supabase.storage.from(PHOTO_BUCKET).upload(path, body, { contentType });
+    if (error) throw error;
+    return path;
+  }
+
+  async function removeStoredPhoto(path?: string) {
+    if (!path) return;
+    const { error } = await supabase.storage.from(PHOTO_BUCKET).remove([path]);
+    if (error) console.error('Error removing photo:', error);
+  }
+
+  async function saveMemory() {
     if (!newMemory.title || !newMemory.memory_date) {
       Alert.alert('Missing Info', 'Please add a title and date.');
       return;
@@ -131,32 +204,68 @@ export default function MemoryLaneScreen() {
       return;
     }
 
-    const { data, error } = await supabase
-      .from('memory_lane')
-      .insert({
-        couple_unit_id: coupleUnitId,
-        user_id: userId,
+    setSaving(true);
+    let uploadedPath: string | null = null;
+    try {
+      if (pickedPhoto) uploadedPath = await uploadPhoto(pickedPhoto);
+      const oldPath = editing?.photoPath;
+      const photoUrl = uploadedPath ?? (removePhoto ? null : oldPath ?? null);
+      const fields = {
         title: newMemory.title.trim(),
         description: newMemory.description.trim() || null,
         memory_date: newMemory.memory_date,
         category: newMemory.memory_type,
         location: newMemory.location.trim() || null,
-      })
-      .select()
-      .single();
+        photo_url: photoUrl,
+      };
 
-    if (error) {
+      const query = editing
+        ? supabase.from('memory_lane').update(fields).eq('id', editing.id)
+        : supabase.from('memory_lane').insert({ ...fields, couple_unit_id: coupleUnitId, user_id: userId });
+      const { data, error } = await query.select().single();
+      if (error) throw error;
+
+      // The row now points at the new photo (or none); the old file is no longer referenced.
+      if (oldPath && oldPath !== photoUrl) await removeStoredPhoto(oldPath);
+
+      const [saved] = await withPhotoUrls([toMemory(data)]);
+      const updated = editing ? memories.map((m) => (m.id === saved.id ? saved : m)) : [...memories, saved];
+      setMemories(updated);
+      organizeTimeline(updated);
+      if (!editing) trackEvent(AnalyticsEvents.MEMORY_SAVED, { has_photo: Boolean(photoUrl) });
+      setShowAddModal(false);
+    } catch (error) {
       console.error('Error saving memory:', error);
+      if (uploadedPath) await removeStoredPhoto(uploadedPath);
       Alert.alert('Error', 'Could not save this memory. Please try again.');
-      return;
+    } finally {
+      setSaving(false);
     }
+  }
 
-    const updated = [...memories, toMemory(data)];
-    setMemories(updated);
-    organizeTimeline(updated);
-
-    setShowAddModal(false);
-    setNewMemory({ title: '', description: '', memory_date: '', memory_type: 'moment', location: '' });
+  function confirmDelete() {
+    if (!editing) return;
+    const memory = editing;
+    Alert.alert('Delete this memory?', 'It will be removed for both of you.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: async () => {
+          const { error } = await supabase.from('memory_lane').delete().eq('id', memory.id);
+          if (error) {
+            console.error('Error deleting memory:', error);
+            Alert.alert('Error', 'Could not delete this memory. Please try again.');
+            return;
+          }
+          await removeStoredPhoto(memory.photoPath);
+          const updated = memories.filter((m) => m.id !== memory.id);
+          setMemories(updated);
+          organizeTimeline(updated);
+          setShowAddModal(false);
+        },
+      },
+    ]);
   }
 
   function formatDate(dateStr: string) {
@@ -241,13 +350,14 @@ export default function MemoryLaneScreen() {
                   const typeInfo = MEMORY_TYPES[memory.memory_type] || MEMORY_TYPES.other;
                   return (
                     <StaggerItem key={memory.id} index={index}>
-                      <View style={styles.memoryCard}>
+                      <TouchableOpacity activeOpacity={0.9} onPress={() => openEdit(memory)} style={styles.memoryCard}>
                         <View style={[styles.memoryIcon, { backgroundColor: typeInfo.color + '20' }]}>
                           <Text style={styles.memoryIconText}>{typeInfo.icon}</Text>
                         </View>
                         <View style={styles.memoryContent}>
                           <Text style={styles.memoryDate}>{formatDate(memory.memory_date)}</Text>
                           <Text style={styles.memoryTitle}>{memory.title}</Text>
+                          {memory.photoUrl ? <Image source={{ uri: memory.photoUrl }} style={styles.memoryPhoto} /> : null}
                           {memory.description && <Text style={styles.memoryDescription}>{memory.description}</Text>}
                           {memory.location && (
                             <View style={styles.memoryLocation}>
@@ -268,7 +378,7 @@ export default function MemoryLaneScreen() {
                             <Text style={styles.milestoneText}>🌟</Text>
                           </View>
                         )}
-                      </View>
+                      </TouchableOpacity>
                     </StaggerItem>
                   );
                 })}
@@ -278,7 +388,7 @@ export default function MemoryLaneScreen() {
 
           {/* Add Memory Button */}
           <FadeInView delay={300}>
-            <ScaleButton onPress={() => setShowAddModal(true)} style={styles.addButton}>
+            <ScaleButton onPress={openAdd} style={styles.addButton}>
               <LinearGradient colors={[colors.accent, '#D4778A']} style={styles.addButtonGradient}>
                 <Text style={styles.addButtonText}>+ Add New Memory</Text>
               </LinearGradient>
@@ -290,8 +400,8 @@ export default function MemoryLaneScreen() {
       {/* Add Memory Modal */}
       <Modal visible={showAddModal} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Add New Memory</Text>
+          <ScrollView style={styles.modalContent} contentContainerStyle={styles.modalScroll} keyboardShouldPersistTaps="handled">
+            <Text style={styles.modalTitle}>{editing ? 'Edit Memory' : 'Add New Memory'}</Text>
 
             <TextInput
               style={styles.input}
@@ -335,15 +445,37 @@ export default function MemoryLaneScreen() {
               ))}
             </View>
 
+            {(() => {
+              const previewUri = pickedPhoto?.uri ?? (!removePhoto ? editing?.photoUrl : undefined);
+              return (
+                <View style={styles.photoRow}>
+                  {previewUri ? <Image source={{ uri: previewUri }} style={styles.photoPreview} /> : null}
+                  <TouchableOpacity onPress={pickPhoto} style={styles.photoButton}>
+                    <Text style={styles.photoButtonText}>{previewUri ? 'Change photo' : '📷 Add a photo'}</Text>
+                  </TouchableOpacity>
+                  {previewUri ? (
+                    <TouchableOpacity onPress={() => { setPickedPhoto(null); setRemovePhoto(true); }} style={styles.photoButton}>
+                      <Text style={styles.photoRemoveText}>Remove</Text>
+                    </TouchableOpacity>
+                  ) : null}
+                </View>
+              );
+            })()}
+
             <View style={styles.modalButtons}>
               <ScaleButton onPress={() => setShowAddModal(false)} variant="secondary" style={{ flex: 1, marginRight: spacing.sm }}>
                 <Text style={styles.cancelButtonText}>Cancel</Text>
               </ScaleButton>
-              <ScaleButton onPress={addMemory} style={{ flex: 1 }}>
-                <Text style={styles.saveButtonText}>Save Memory</Text>
+              <ScaleButton onPress={saveMemory} disabled={saving} style={{ flex: 1 }}>
+                {saving ? <ActivityIndicator color={colors.white} /> : <Text style={styles.saveButtonText}>Save Memory</Text>}
               </ScaleButton>
             </View>
-          </View>
+            {editing ? (
+              <TouchableOpacity onPress={confirmDelete} style={styles.deleteButton}>
+                <Text style={styles.deleteText}>Delete memory</Text>
+              </TouchableOpacity>
+            ) : null}
+          </ScrollView>
         </View>
       </Modal>
     </SafeAreaView>
@@ -385,7 +517,7 @@ const styles = StyleSheet.create({
   addButtonGradient: { padding: spacing.md, alignItems: 'center' },
   addButtonText: { color: colors.white, fontSize: 16, fontWeight: 'bold' },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
-  modalContent: { backgroundColor: colors.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: spacing.lg, maxHeight: '80%' },
+  modalContent: { backgroundColor: colors.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: spacing.lg, maxHeight: '90%' },
   modalTitle: { fontSize: 20, fontWeight: 'bold', color: colors.primary, marginBottom: spacing.lg, textAlign: 'center' },
   input: { backgroundColor: colors.background, borderRadius: 12, padding: spacing.md, fontSize: 14, color: colors.primary, marginBottom: spacing.sm },
   typeSelector: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginBottom: spacing.lg },
@@ -393,6 +525,15 @@ const styles = StyleSheet.create({
   typeIcon: { fontSize: 16, marginRight: spacing.xs / 2 },
   typeLabel: { fontSize: 11, color: colors.gray },
   modalButtons: { flexDirection: 'row' },
+  modalScroll: { paddingBottom: spacing.xl },
+  memoryPhoto: { width: '100%', height: 160, borderRadius: 12, marginVertical: spacing.xs },
+  photoRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: spacing.sm, marginBottom: spacing.md },
+  photoPreview: { width: 64, height: 64, borderRadius: 8 },
+  photoButton: { paddingVertical: spacing.xs, paddingHorizontal: spacing.sm },
+  photoButtonText: { color: colors.accent, fontWeight: '600' },
+  photoRemoveText: { color: colors.gray },
+  deleteButton: { marginTop: spacing.md, alignItems: 'center', padding: spacing.sm },
+  deleteText: { color: colors.error, fontWeight: '600' },
   cancelButtonText: { color: colors.gray, fontSize: 14, fontWeight: '600', textAlign: 'center' },
   saveButtonText: { color: colors.white, fontSize: 14, fontWeight: '600', textAlign: 'center' },
 });

@@ -299,6 +299,48 @@ export default function DashboardScreen() {
           </ScaleButton>
 
           <ScaleButton
+            onPress={() => router.push('/daily-question')}
+            style={styles.quickActionCard}
+          >
+            <View style={styles.quickActionContent}>
+              <Text style={styles.quickActionIcon}>❓</Text>
+              <View style={styles.quickActionText}>
+                <Text style={styles.quickActionTitle}>Daily Question</Text>
+                <Text style={styles.quickActionSubtitle}>Answer today’s question, then see your partner’s</Text>
+              </View>
+              <Text style={styles.quickActionArrow}>→</Text>
+            </View>
+          </ScaleButton>
+
+          <ScaleButton
+            onPress={() => router.push('/topics')}
+            style={styles.quickActionCard}
+          >
+            <View style={styles.quickActionContent}>
+              <Text style={styles.quickActionIcon}>🗣️</Text>
+              <View style={styles.quickActionText}>
+                <Text style={styles.quickActionTitle}>Check-in Topics</Text>
+                <Text style={styles.quickActionSubtitle}>Talk through one area of your relationship</Text>
+              </View>
+              <Text style={styles.quickActionArrow}>→</Text>
+            </View>
+          </ScaleButton>
+
+          <ScaleButton
+            onPress={() => router.push('/deep-dive')}
+            style={styles.quickActionCard}
+          >
+            <View style={styles.quickActionContent}>
+              <Text style={styles.quickActionIcon}>🔍</Text>
+              <View style={styles.quickActionText}>
+                <Text style={styles.quickActionTitle}>Monthly Deep Dive</Text>
+                <Text style={styles.quickActionSubtitle}>One theme to explore together this month</Text>
+              </View>
+              <Text style={styles.quickActionArrow}>→</Text>
+            </View>
+          </ScaleButton>
+
+          <ScaleButton
             onPress={() => router.push('/(tabs)/activities')}
             style={styles.quickActionCard}
           >

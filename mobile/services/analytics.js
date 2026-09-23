@@ -118,6 +118,13 @@ export const AnalyticsEvents = {
 
   // Learning
   LEARNING_MODULE_COMPLETED: 'learning_module_completed',
+
+  // Couple rituals
+  DAILY_QUESTION_ANSWERED: 'daily_question_answered',
+  CHECK_IN_TOPIC_COMPLETED: 'check_in_topic_completed',
+  DEEP_DIVE_STARTED: 'deep_dive_started',
+  DEEP_DIVE_COMPLETED: 'deep_dive_completed',
+  MEMORY_SAVED: 'memory_saved',
   
   // Messages
   MESSAGE_SENT: 'message_sent',
