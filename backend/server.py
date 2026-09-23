@@ -9,10 +9,10 @@ from typing import List, Dict, Any
 import uuid
 from datetime import datetime, timezone
 from supabase import create_client, Client
-from services.ai_insights import ai_insights_generator
 from routes.payments import router as payments_router
 from routes.analyzers import router as analyzers_router
 from routes.stripe_webhook import router as stripe_webhook_router
+from routes.insights import router as insights_router
 
 
 ROOT_DIR = Path(__file__).parent
@@ -66,44 +66,15 @@ async def get_status_checks(skip: int = 0, limit: int = 100):
     result = supabase.table('status_checks').select("*").range(skip, skip + limit - 1).execute()
     return result.data or []
 
-# AI Insights Generation Endpoint
-class AIInsightsRequest(BaseModel):
-    assessment_name: str
-    framework: str
-    user1_scores: Dict[str, Any]
-    user2_scores: Dict[str, Any]
-    user1_name: str = "Partner 1"
-    user2_name: str = "Partner 2"
-
-@api_router.post("/generate-insights")
-async def generate_insights(request: AIInsightsRequest):
-    """Generate AI-powered insights for assessment results"""
-    try:
-        insights = await ai_insights_generator.generate_assessment_insights(
-            assessment_name=request.assessment_name,
-            framework=request.framework,
-            user1_scores=request.user1_scores,
-            user2_scores=request.user2_scores,
-            user1_name=request.user1_name,
-            user2_name=request.user2_name
-        )
-        return insights
-    except Exception as e:
-        logger.error(f"Error generating insights: {str(e)}")
-        return {
-            "error": str(e),
-            "narrative": "We encountered an issue generating insights. Please try again later.",
-            "growth_recommendations": [],
-            "strength_affirmation": "",
-            "communication_scripts": {},
-            "framework_tags": []
-        }
+# AI insights live in routes/insights.py (authenticated, generated from server-side data).
+# The old unauthenticated /api/generate-insights endpoint was removed.
 
 # Include the router in the main app
 app.include_router(api_router)
 app.include_router(payments_router)  # Include payments router
 app.include_router(analyzers_router)
 app.include_router(stripe_webhook_router)
+app.include_router(insights_router)
 
 # Browser origins allowed to call the API. Native mobile requests send no Origin header,
 # so CORS doesn't apply to the app; this only governs web clients. Never "*" in production.

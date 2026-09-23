@@ -56,10 +56,12 @@ const coupleRuleConfigByAssessment = {
     sharedGrowthThreshold: 55,
     lowFloorThreshold: 45,
   },
+  // Spec: direction matters more than intensity for values, shared meaning and money,
+  // so alignment carries the most weight for these three.
   'values-alignment': {
-    averageWeight: 0.35,
-    alignmentWeight: 0.3,
-    floorWeight: 0.35,
+    averageWeight: 0.3,
+    alignmentWeight: 0.45,
+    floorWeight: 0.25,
     highGapThreshold: 25,
     sharedStrengthThreshold: 72,
     sharedGrowthThreshold: 55,
@@ -85,17 +87,17 @@ const coupleRuleConfigByAssessment = {
   },
   'financial-values': {
     averageWeight: 0.3,
-    alignmentWeight: 0.35,
-    floorWeight: 0.35,
+    alignmentWeight: 0.45,
+    floorWeight: 0.25,
     highGapThreshold: 24,
     sharedStrengthThreshold: 72,
     sharedGrowthThreshold: 55,
     lowFloorThreshold: 45,
   },
   'shared-meaning': {
-    averageWeight: 0.35,
-    alignmentWeight: 0.3,
-    floorWeight: 0.35,
+    averageWeight: 0.3,
+    alignmentWeight: 0.45,
+    floorWeight: 0.25,
     highGapThreshold: 24,
     sharedStrengthThreshold: 72,
     sharedGrowthThreshold: 55,
@@ -441,13 +443,80 @@ function buildAsymmetryFlags(comparisons, ruleConfig) {
     .slice(0, 3);
 }
 
-function buildActionPlan(assessmentId, patternKey, comparisons, ruleConfig) {
+const FLOOR_ASSESSMENTS = ['trust-vulnerability', 'intimacy-closeness', 'sexual-compatibility'];
+const VALUES_ASSESSMENTS = ['values-alignment', 'shared-meaning', 'financial-values'];
+
+// Assessment-specific feedback rules from supabase/couple_assessment_scoring_spec.md
+// ("Feedback rules"): warnings, actions that must come first, and each partner's top
+// preferences (love languages). Worded for both partners; never names who is lower.
+function buildSpecGuidance(assessmentId, comparisons, ruleConfig, leftProfile, rightProfile) {
+  const warnings = [];
+  const priorityActions = [];
+  let topPreferences = null;
+  const byKey = new Map(comparisons.map((c) => [c.key, c]));
+  const biggestGap = comparisons.slice().sort((a, b) => b.gap - a.gap)[0] || null;
+
+  if (assessmentId === 'love-languages') {
+    const top = (profile) => (profile.topDimensions || []).slice(0, 2).map((d) => d.label);
+    topPreferences = { partner1: top(leftProfile), partner2: top(rightProfile) };
+    priorityActions.push(
+      'Each of you name your top love language, then this week express care once a day in your partner\u2019s language rather than your own.'
+    );
+  }
+
+  if (assessmentId === 'gottman-four-horsemen') {
+    // Items are keyed healthy: a low "Respect & Appreciation" / "Staying Engaged" score means
+    // contempt / stonewalling show up more often.
+    const elevated = ['contempt', 'stonewalling'].filter((key) => {
+      const c = byKey.get(key);
+      return c && c.floorScore <= ruleConfig.lowFloorThreshold;
+    });
+    if (elevated.length) {
+      warnings.push(
+        `${elevated.map((k) => (k === 'contempt' ? 'Contempt' : 'Stonewalling')).join(' and ')} ${elevated.length > 1 ? 'show' : 'shows'} up for at least one of you. ` +
+          'These are the patterns research links most strongly to relationships struggling over time, so it is worth working on them first — together, and with a couples counselor if they feel hard to shift.'
+      );
+    }
+  }
+
+  if (assessmentId === 'gottman-four-horsemen' || assessmentId === 'conflict-resolution') {
+    priorityActions.push(
+      'Agree on a repair phrase and a time-out signal now, before your next disagreement, and use them when things heat up.'
+    );
+  }
+
+  if (FLOOR_ASSESSMENTS.includes(assessmentId)) {
+    const low = comparisons.some((c) => c.floorScore <= ruleConfig.lowFloorThreshold);
+    if (low) {
+      priorityActions.unshift(
+        'Start with safety: slow down, keep small promises, and make it easy for whoever feels less safe to say so. Build closeness after that.'
+      );
+    }
+  }
+
+  if (assessmentId === 'attachment-style' && biggestGap && biggestGap.gap >= ruleConfig.highGapThreshold) {
+    priorityActions.push(
+      'Make a reassurance-and-space plan: how one of you can ask for reassurance, and how the other can take space without disappearing.'
+    );
+  }
+
+  if (VALUES_ASSESSMENTS.includes(assessmentId)) {
+    priorityActions.push(
+      'Write a short shared plan: what you both want, where you differ, and how you will decide when you do.'
+    );
+  }
+
+  return { warnings, priorityActions, topPreferences };
+}
+
+function buildActionPlan(assessmentId, patternKey, comparisons, ruleConfig, priorityActions = []) {
   const pattern = getPattern(patternKey);
   const topGap = comparisons.slice().sort((a, b) => b.gap - a.gap)[0] || null;
   const topStrength = comparisons.slice().sort((a, b) => b.weightedScore - a.weightedScore)[0] || null;
   const focusAction = assessmentActions[assessmentId] || null;
 
   const actions = [
+    ...priorityActions,
     pattern.defaultAction,
     topGap
       ? `Focus first on ${topGap.label}: close the gap with one small habit or conversation.`
@@ -459,7 +528,8 @@ function buildActionPlan(assessmentId, patternKey, comparisons, ruleConfig) {
     focusAction?.stronger || null,
   ].filter(Boolean);
 
-  return actions.slice(0, 4);
+  // Spec-required actions always survive the cut.
+  return [...new Set(actions)].slice(0, Math.max(4, priorityActions.length + 2));
 }
 
 function buildConversationScripts(assessmentId, patternKey, comparisons, leftProfile, rightProfile) {
@@ -530,7 +600,8 @@ export function calculateCoupleAssessmentResult(assessmentId, leftInput, rightIn
   const sharedStrengths = buildSharedStrengths(comparisons, ruleConfig);
   const sharedGrowthAreas = buildSharedGrowthAreas(comparisons, ruleConfig);
   const asymmetryFlags = buildAsymmetryFlags(comparisons, ruleConfig);
-  const actionPlan = buildActionPlan(assessmentId, patternKey, comparisons, ruleConfig);
+  const guidance = buildSpecGuidance(assessmentId, comparisons, ruleConfig, base.leftProfile, base.rightProfile);
+  const actionPlan = buildActionPlan(assessmentId, patternKey, comparisons, ruleConfig, guidance.priorityActions);
   const conversationScripts = buildConversationScripts(assessmentId, patternKey, comparisons, base.leftProfile, base.rightProfile);
   const coupleSummary = buildCoupleSummary(assessmentId, patternKey, comparisons, base.leftProfile, base.rightProfile, ruleConfig);
 
@@ -552,6 +623,8 @@ export function calculateCoupleAssessmentResult(assessmentId, leftInput, rightIn
     relationshipPatternSummary: pattern.summary,
     relationshipPatternSeverity: pattern.severity,
     actionPlan,
+    warnings: guidance.warnings,
+    topPreferences: guidance.topPreferences,
     conversationScripts,
     coupleSummary,
     coupleScoreLabel: `${Math.round(weightedCompatibility)}%`,

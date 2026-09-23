@@ -61,6 +61,49 @@ def parse_schema(path=SCHEMA_PATH):
     return tables
 
 
+def _split_top(expr):
+    """Split a PostgREST or/and list on commas that aren't inside parentheses."""
+    parts, depth, current = [], 0, ""
+    for ch in expr:
+        if ch == "," and depth == 0:
+            parts.append(current)
+            current = ""
+            continue
+        depth += ch == "("
+        depth -= ch == ")"
+        current += ch
+    if current:
+        parts.append(current)
+    return parts
+
+
+def _eval_condition(row, cond):
+    """One PostgREST condition: field.eq.v, field.is.null, field.lt.v, field.gt.v, and(...)."""
+    if cond.startswith("and(") and cond.endswith(")"):
+        return all(_eval_condition(row, c) for c in _split_top(cond[4:-1]))
+    field, op, value = cond.split(".", 2)
+    current = row.get(field)
+    if op == "eq":
+        return str(current) == value
+    if op == "is":
+        return current is None if value == "null" else str(current).lower() == value
+    if op == "lt":
+        return current is not None and str(current) < value
+    if op == "gt":
+        return current is not None and str(current) > value
+    raise ValueError(f"unsupported PostgREST operator in fake: {op}")
+
+
+def _condition_fields(expr):
+    fields = []
+    for cond in _split_top(expr):
+        if cond.startswith("and(") and cond.endswith(")"):
+            fields += _condition_fields(cond[4:-1])
+        else:
+            fields.append(cond.split(".", 1)[0])
+    return fields
+
+
 class Result(SimpleNamespace):
     def __init__(self, data=None, count=None):
         super().__init__(data=data if data is not None else [], count=count)
@@ -125,13 +168,8 @@ class Query:
                 return False
             if f[0] == "in" and row.get(f[1]) not in f[2]:
                 return False
-            if f[0] == "or":
-                ok = False
-                for part in f[1].split(","):
-                    field, _, value = part.partition(".eq.")
-                    ok = ok or str(row.get(field)) == value
-                if not ok:
-                    return False
+            if f[0] == "or" and not any(_eval_condition(row, c) for c in _split_top(f[1])):
+                return False
         return True
 
     def execute(self):
@@ -195,7 +233,7 @@ class InMemoryDB:
             return Result(data=inserted)
 
         for f in q.filters:
-            fields = [p.partition(".eq.")[0] for p in f[1].split(",")] if f[0] == "or" else [f[1]]
+            fields = _condition_fields(f[1]) if f[0] == "or" else [f[1]]
             for field in fields:
                 if field not in spec["columns"]:
                     raise PostgrestError(f"column {q.table}.{field} does not exist", "42703")

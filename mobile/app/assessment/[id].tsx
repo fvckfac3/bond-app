@@ -4,6 +4,7 @@ import { Button, RadioButton, Card, ProgressBar } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { supabase } from '../../services/supabase';
+import { requestCoupleInsight } from '../../services/insights';
 import { colors, spacing } from '../../constants/theme';
 import {
   allAssessments,
@@ -53,6 +54,20 @@ export default function AssessmentTakeScreen() {
       // Load questions based on assessment - use specific bank or generate generic
       let assessmentQuestions = assessmentQuestionBanks[id] || generateGenericQuestions(foundAssessment?.questionsCount || 15);
       setQuestions(assessmentQuestions);
+
+      // Answers can't be changed once submitted: a finished assessment opens its result.
+      const { data: finished } = await supabase
+        .from('assessment_sessions')
+        .select('id')
+        .eq('user_id', user.id)
+        .eq('assessment_id', id)
+        .eq('completed', true)
+        .order('submitted_at', { ascending: false })
+        .limit(1);
+      if (finished?.length) {
+        router.replace({ pathname: '/results/session/[sessionId]', params: { sessionId: finished[0].id } });
+        return;
+      }
 
       // Create or load session
       const { data: existingSession } = await supabase
@@ -139,7 +154,7 @@ export default function AssessmentTakeScreen() {
             try {
               const profile = calculateAssessmentProfile(id, answers);
 
-              await supabase
+              const { error: submitError } = await supabase
                 .from('assessment_sessions')
                 .update({
                   completed: true,
@@ -159,6 +174,7 @@ export default function AssessmentTakeScreen() {
                   },
                 })
                 .eq('id', sessionId);
+              if (submitError) throw submitError;
 
               const { data: { user } } = await supabase.auth.getUser();
               const { data: coupleUnit } = await supabase
@@ -166,22 +182,26 @@ export default function AssessmentTakeScreen() {
                 .select('*')
                 .or(`user1_id.eq.${user.id},user2_id.eq.${user.id}`)
                 .eq('status', 'active')
-                .single();
+                .maybeSingle();
 
               if (coupleUnit) {
                 const partnerId = coupleUnit.user1_id === user.id
                   ? coupleUnit.user2_id
                   : coupleUnit.user1_id;
 
-                const { data: partnerSession } = await supabase
+                const { data: partnerSessions } = await supabase
                   .from('assessment_sessions')
                   .select('*')
                   .eq('user_id', partnerId)
                   .eq('assessment_id', id)
                   .eq('completed', true)
-                  .single();
+                  .order('submitted_at', { ascending: false })
+                  .limit(1);
+                const partnerSession = partnerSessions?.[0];
 
                 if (partnerSession) {
+                  // Second partner to finish: build the couple result, then ask the backend
+                  // for the shared insight (it notifies both partners when it's ready).
                   const coupleResult = await createCoupleResult(
                     coupleUnit.id,
                     user.id,
@@ -191,28 +211,12 @@ export default function AssessmentTakeScreen() {
                     profile,
                     partnerSession.scores || {}
                   );
-                  Alert.alert(
-                    'Success! 🎉',
-                    'Both you and your partner have completed this assessment. View your results now!',
-                    [{ 
-                      text: 'View Results', 
-                      onPress: () => router.push({
-                        pathname: '/results/[assessmentId]',
-                        params: { 
-                          assessmentId: id,
-                          coupleResultId: coupleResult.id 
-                        }
-                      })
-                    }]
-                  );
-                } else {
-                  Alert.alert(
-                    'Submitted! ✅',
-                    'Your answers are saved. You\'ll see results once your partner completes the assessment.',
-                    [{ text: 'OK', onPress: () => router.back() }]
-                  );
+                  requestCoupleInsight(coupleResult.id);
                 }
               }
+
+              // Everyone sees their own score and personal insight straight away.
+              router.replace({ pathname: '/results/session/[sessionId]', params: { sessionId } });
             } catch (error) {
               console.error('Error submitting:', error);
               Alert.alert('Error', 'Failed to submit assessment');

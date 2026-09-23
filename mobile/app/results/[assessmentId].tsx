@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { View, StyleSheet, Text, ScrollView, Dimensions, Alert } from 'react-native';
 import { Card, Button, Divider, ActivityIndicator } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -9,8 +9,9 @@ import { allAssessments } from '../../utils/allAssessments';
 import { fetchSeriesTitles } from '../../services/learning';
 import { useSubscription } from '../../hooks/useSubscription';
 import PaywallModal from '../../components/subscription/PaywallModal';
-import UpgradeButton from '../../components/subscription/UpgradeButton';
-import { logError } from '../../services/sentry';
+import InsightCard from '../../components/insights/InsightCard';
+import { requestCoupleInsight, CoupleInsight } from '../../services/insights';
+import { useInsight } from '../../hooks/useInsight';
 
 const { width } = Dimensions.get('window');
 
@@ -22,14 +23,10 @@ export default function ResultsScreen() {
   const [coupleResult, setCoupleResult] = useState(null);
   const [user1Data, setUser1Data] = useState(null);
   const [user2Data, setUser2Data] = useState(null);
-  const [generatingInsights, setGeneratingInsights] = useState(false);
-  const [insightsFailed, setInsightsFailed] = useState(false);
   const [seriesTitles, setSeriesTitles] = useState<Record<string, string>>({});
   const [userId, setUserId] = useState(undefined);
   const [showPaywall, setShowPaywall] = useState(false);
-  const insightsRequested = useRef(false);
-  const { canUseFeature, packages, loading: subscriptionLoading } = useSubscription(userId);
-  const subscriptionReady = !!userId && !subscriptionLoading;
+  const { packages } = useSubscription(userId);
   const onboardingResult = assessmentId === 'onboarding-assessment' ? coupleResult : null;
 
   useEffect(() => {
@@ -40,16 +37,32 @@ export default function ResultsScreen() {
     supabase.auth.getUser().then(({ data }) => setUserId(data?.user?.id));
   }, []);
 
-  // AI generation is a premium feature: only call the backend once we know the
-  // user's plan allows it, and never more than once per screen visit.
-  useEffect(() => {
-    if (insightsRequested.current || !subscriptionReady || loading) return;
-    if (!coupleResult || !user1Data || !user2Data || onboardingResult) return;
-    if (coupleResult.ai_narrative) return;
-    if (!canUseFeature('ai_insight')) return;
-    insightsRequested.current = true;
-    generateAIInsights(coupleResult.id, user1Data, user2Data);
-  }, [subscriptionReady, loading, coupleResult, user1Data, user2Data, canUseFeature]);
+  // The couple insight is written once by the backend for both partners; this screen asks for
+  // it (idempotent) and shows whatever is already stored straight away.
+  const storedInsight = useMemo<CoupleInsight | null>(() => {
+    if (!coupleResult || onboardingResult) return null;
+    if (coupleResult.ai_status === 'ready' && coupleResult.ai_insight) return coupleResult.ai_insight;
+    if (coupleResult.ai_narrative) {
+      // Written by an older app version, before insights moved to the backend.
+      return {
+        headline: '',
+        narrative: coupleResult.ai_narrative,
+        shared_strengths: [],
+        growth_opportunities: [],
+        how_you_differ: null,
+        conversation_starters: Object.values(coupleResult.ai_communication_scripts || {}).filter((v) => typeof v === 'string') as string[],
+        try_together: coupleResult.ai_growth_recommendations || [],
+        strength_affirmation: coupleResult.ai_strength_affirmation || '',
+        safety_note: null,
+      };
+    }
+    return null;
+  }, [coupleResult, onboardingResult]);
+  const insightRequest = useMemo(
+    () => (coupleResult?.id && !onboardingResult ? () => requestCoupleInsight(coupleResult.id) : null),
+    [coupleResult?.id, onboardingResult]
+  );
+  const insight = useInsight<CoupleInsight>(insightRequest, storedInsight);
 
   async function loadResults() {
     try {
@@ -112,60 +125,6 @@ export default function ResultsScreen() {
     }
   }
 
-  async function generateAIInsights(resultId, session1, session2) {
-    setGeneratingInsights(true);
-    setInsightsFailed(false);
-    try {
-      const backendUrl = process.env.EXPO_PUBLIC_BACKEND_URL;
-      
-      if (!backendUrl) {
-        throw new Error('EXPO_PUBLIC_BACKEND_URL is not configured; set it in .env before building.');
-      }
-
-      const response = await fetch(`${backendUrl}/api/generate-insights`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          assessment_name: assessment.name,
-          framework: assessment.framework,
-          user1_scores: session1.scores || {},
-          user2_scores: session2.scores || {},
-          user1_name: session1.users?.name || 'Partner 1',
-          user2_name: session2.users?.name || 'Partner 2',
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`Backend returned ${response.status}`);
-      }
-
-      const insights = await response.json();
-      // The backend reports generation failures in the body; never save those as insights.
-      if (insights.error || !insights.narrative) {
-        throw new Error(insights.error || 'Empty insight response');
-      }
-
-      const { error: saveError } = await supabase
-        .from('couple_results')
-        .update({
-          ai_narrative: insights.narrative,
-          ai_growth_recommendations: insights.growth_recommendations,
-          ai_strength_affirmation: insights.strength_affirmation,
-          ai_communication_scripts: insights.communication_scripts,
-          framework_tags: insights.framework_tags,
-        })
-        .eq('id', resultId);
-      if (saveError) throw saveError;
-
-      await loadResults();
-    } catch (error) {
-      logError(error, { tags: { feature: 'ai_insights' }, extra: { resultId } });
-      setInsightsFailed(true);
-    } finally {
-      setGeneratingInsights(false);
-    }
-  }
-
   // Side-by-side 0-100 dimension scores for both partners, for every assessment.
   function renderScoreComparison() {
     const dims1 = user1Data?.scores?.dimensionScores;
@@ -214,6 +173,10 @@ export default function ResultsScreen() {
     const asymmetry = coupleResult.asymmetry_flags || combined.asymmetryFlags || [];
     const actionPlan = coupleResult.action_plan || combined.actionPlan || [];
     const scripts = coupleResult.conversation_scripts || combined.conversationScripts || {};
+    const warnings = combined.warnings || [];
+    const topPreferences = combined.topPreferences;
+    const name1 = user1Data?.users?.name || 'Partner 1';
+    const name2 = user2Data?.users?.name || 'Partner 2';
 
     return (
       <>
@@ -230,6 +193,15 @@ export default function ResultsScreen() {
           </Card.Content>
         </Card>
 
+        {warnings.map((warning) => (
+          <Card key={warning} style={[styles.card, styles.warningCard]}>
+            <Card.Content>
+              <Text style={styles.cardTitle}>Worth your attention</Text>
+              <Text style={styles.narrative}>{warning}</Text>
+            </Card.Content>
+          </Card>
+        ))}
+
         <Card style={styles.card}>
           <Card.Content>
             <Text style={styles.cardTitle}>Couple Summary</Text>
@@ -243,16 +215,22 @@ export default function ResultsScreen() {
               <Text style={styles.cardTitle}>Individual Profiles</Text>
               {partner1 && (
                 <View style={styles.profileBlock}>
-                  <Text style={styles.profileLabel}>Partner 1</Text>
+                  <Text style={styles.profileLabel}>{name1}</Text>
                   <Text style={styles.profileText}>{partner1.summary || partner1.profileType?.title || 'Profile captured'}</Text>
                   <Text style={styles.profileMeta}>Overall: {partner1.overallScore?.toFixed?.(1) || partner1.overallScore || 0}%</Text>
+                  {topPreferences?.partner1?.length ? (
+                    <Text style={styles.profileMeta}>Feels most loved through: {topPreferences.partner1.join(', ')}</Text>
+                  ) : null}
                 </View>
               )}
               {partner2 && (
                 <View style={styles.profileBlock}>
-                  <Text style={styles.profileLabel}>Partner 2</Text>
+                  <Text style={styles.profileLabel}>{name2}</Text>
                   <Text style={styles.profileText}>{partner2.summary || partner2.profileType?.title || 'Profile captured'}</Text>
                   <Text style={styles.profileMeta}>Overall: {partner2.overallScore?.toFixed?.(1) || partner2.overallScore || 0}%</Text>
+                  {topPreferences?.partner2?.length ? (
+                    <Text style={styles.profileMeta}>Feels most loved through: {topPreferences.partner2.join(', ')}</Text>
+                  ) : null}
                 </View>
               )}
             </Card.Content>
@@ -373,92 +351,14 @@ export default function ResultsScreen() {
 
         {renderStructuredCoupleResult()}
 
-        {generatingInsights ? (
-          <Card style={styles.card}>
-            <Card.Content>
-              <ActivityIndicator size="small" color={colors.accent} />
-              <Text style={styles.generatingText}>Generating AI insights...</Text>
-            </Card.Content>
-          </Card>
-        ) : subscriptionReady && !onboardingResult && !canUseFeature('ai_insight') ? (
-          <Card style={styles.card}>
-            <Card.Content>
-              <Text style={styles.cardTitle}>🔒 AI Insights</Text>
-              <Text style={styles.generatingText}>
-                Personalized insights, growth recommendations and conversation starters for your
-                results are included with Premium.
-              </Text>
-              <UpgradeButton onPress={() => setShowPaywall(true)} text="Unlock AI Insights" />
-            </Card.Content>
-          </Card>
-        ) : insightsFailed && !coupleResult?.ai_narrative ? (
-          <Card style={styles.card}>
-            <Card.Content>
-              <Text style={styles.cardTitle}>✨ Insights</Text>
-              <Text style={styles.generatingText}>
-                We couldn’t generate your insights just now.
-              </Text>
-              <Button mode="outlined" onPress={() => generateAIInsights(coupleResult.id, user1Data, user2Data)}>
-                Try again
-              </Button>
-            </Card.Content>
-          </Card>
-        ) : coupleResult?.ai_narrative ? (
-          <>
-            <Card style={styles.card}>
-              <Card.Content>
-                <Text style={styles.cardTitle}>✨ Insights</Text>
-                <Text style={styles.narrative}>{coupleResult.ai_narrative}</Text>
-              </Card.Content>
-            </Card>
-
-            {coupleResult.ai_strength_affirmation && (
-              <Card style={[styles.card, styles.strengthCard]}>
-                <Card.Content>
-                  <Text style={styles.strengthIcon}>💪</Text>
-                  <Text style={styles.strengthText}>{coupleResult.ai_strength_affirmation}</Text>
-                </Card.Content>
-              </Card>
-            )}
-
-            {coupleResult.ai_growth_recommendations?.length > 0 && (
-              <Card style={styles.card}>
-                <Card.Content>
-                  <Text style={styles.cardTitle}>🌱 Growth Recommendations</Text>
-                  {coupleResult.ai_growth_recommendations.map((rec, index) => (
-                    <View key={index} style={styles.recommendation}>
-                      <Text style={styles.recommendationNumber}>{index + 1}</Text>
-                      <Text style={styles.recommendationText}>{rec}</Text>
-                    </View>
-                  ))}
-                </Card.Content>
-              </Card>
-            )}
-
-            {coupleResult.ai_communication_scripts && (
-              <Card style={styles.card}>
-                <Card.Content>
-                  <Text style={styles.cardTitle}>💬 Conversation Starters</Text>
-                  {coupleResult.ai_communication_scripts.divergence_conversation && (
-                    <View style={styles.script}>
-                      <Text style={styles.scriptLabel}>For differences:</Text>
-                      <Text style={styles.scriptText}>
-                        “{coupleResult.ai_communication_scripts.divergence_conversation}”
-                      </Text>
-                    </View>
-                  )}
-                  {coupleResult.ai_communication_scripts.appreciation_expression && (
-                    <View style={styles.script}>
-                      <Text style={styles.scriptLabel}>For appreciation:</Text>
-                      <Text style={styles.scriptText}>
-                        “{coupleResult.ai_communication_scripts.appreciation_expression}”
-                      </Text>
-                    </View>
-                  )}
-                </Card.Content>
-              </Card>
-            )}
-          </>
+        {coupleResult && !onboardingResult ? (
+          <InsightCard
+            kind="couple"
+            title="Your couple insight"
+            state={insight}
+            onRetry={insight.start}
+            onUpgrade={() => setShowPaywall(true)}
+          />
         ) : null}
 
         {onboardingResult ? (
@@ -519,6 +419,9 @@ export default function ResultsScreen() {
 }
 
 const styles = StyleSheet.create({
+  warningCard: {
+    backgroundColor: colors.warningLight,
+  },
   container: {
     flex: 1,
     backgroundColor: colors.background,

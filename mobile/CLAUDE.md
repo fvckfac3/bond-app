@@ -15,6 +15,8 @@ Assessment content (16 modules: Gottman Method, EFT, Attachment Theory, NVC, Fiv
 
 Editorial content is read from Supabase, not bundled: the learning library through `services/learning.ts` (series list, series screen `app/learning/[seriesKey]/index.tsx`, lesson screen `app/learning/[seriesKey]/[moduleKey].tsx`, progress in `learning_series_progress`), and activities from the `activities` table ordered by `sort_order`. Content changes are SQL migrations, not app releases.
 
+Assessment flow: on submit the app scores the answers (`assessmentEngine.js`), saves them to the session, and opens the individual result (`app/results/session/[sessionId].tsx`); the second partner to finish also creates the `couple_results` row (`coupleAssessment.js`) and asks the backend for the couple insight. AI never runs on the device — screens call the backend through `services/insights.ts` and render with `hooks/useInsight.ts` + `components/insights/InsightCard.tsx`. Analyzers live at `app/ai/`.
+
 Couple-scoped screens get the signed-in user and active couple from `services/couple.ts` (`getCoupleContext`). The daily question is picked client-side by `utils/dailyQuestion.js` (same question for everyone on a calendar day, rotating through active questions by `sort_order`) — both partners must compute the same one, so keep it a pure function of the date.
 
 ## Commands

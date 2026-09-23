@@ -13,6 +13,8 @@ from supabase import create_client, Client
 import stripe
 import logging
 
+from services.ai_usage import FREE_AI_INSIGHTS_PER_MONTH, insights_used_this_month
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["payments"])
@@ -579,18 +581,11 @@ async def get_user_usage(user_id: str) -> Dict:
     )
     assessments_count = assessments_response.count or 0
 
-    # Count AI insights used this month (from couple_results)
-    insights_response = (
-        supabase.table("couple_results")
-        .select("id", count="exact")
-        .or_(f"partner1_id.eq.{user_id},partner2_id.eq.{user_id}")
-        .gte("created_at", month_start.isoformat())
-        .execute()
-    )
-    insights_count = insights_response.count or 0
+    # AI insights generated for this user this month (shared definition with routes/insights.py)
+    insights_count = insights_used_this_month(supabase, user_id)
 
     # Free tier limits
-    FREE_TIER_LIMITS = {"assessments_per_month": 1, "ai_insights_per_month": 5}
+    FREE_TIER_LIMITS = {"assessments_per_month": 1, "ai_insights_per_month": FREE_AI_INSIGHTS_PER_MONTH}
 
     return {
         "assessments_used": assessments_count,

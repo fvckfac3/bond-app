@@ -1,4 +1,4 @@
-import { Stack } from 'expo-router';
+import { Stack, router } from 'expo-router';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { PaperProvider, Button } from 'react-native-paper';
 import { View, Text } from 'react-native';
@@ -48,7 +48,21 @@ export default function RootLayout() {
     const { data: authListener } = supabase.auth.onAuthStateChange((event) => {
       if (event === 'SIGNED_IN') pushNotificationService.registerForPushNotifications();
     });
-    return () => authListener.subscription.unsubscribe();
+
+    // Tapping an "insight is ready" notification (sent by the backend) opens it.
+    const responseListener = pushNotificationService.addNotificationResponseListener((response) => {
+      const data = response?.notification?.request?.content?.data || {};
+      if (data.type === 'couple_insight' && data.assessmentId && data.coupleResultId) {
+        router.push({ pathname: '/results/[assessmentId]', params: { assessmentId: data.assessmentId, coupleResultId: data.coupleResultId } });
+      } else if (data.type === 'relationship_summary') {
+        router.push('/(tabs)/progress');
+      }
+    });
+
+    return () => {
+      authListener.subscription.unsubscribe();
+      responseListener?.remove();
+    };
   }, []);
 
   return (

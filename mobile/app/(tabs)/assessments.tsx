@@ -2,11 +2,11 @@
 // Built following: animation-patterns, polish, mobile-design, shadows, ui-ux-patterns
 // Clean list with purposeful animations
 
-import { useState, useEffect } from 'react';
+import { useState, useCallback } from 'react';
 import { View, StyleSheet, Text, FlatList, TouchableOpacity, Alert, Platform, AccessibilityInfo } from 'react-native';
 import { Card, Chip, ProgressBar } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { supabase } from '../../services/supabase';
 import { colors, spacing, borderRadius, shadows, motion, typography, touchTargets } from '../../constants/theme';
@@ -35,15 +35,16 @@ export default function AssessmentsScreen() {
   const [user, setUser] = useState(null);
   const [coupleUnit, setCoupleUnit] = useState(null);
   const [completedAssessments, setCompletedAssessments] = useState([]);
+  // assessment_id -> your latest completed session (you've finished; your partner may not have)
+  const [mySessions, setMySessions] = useState<Record<string, string>>({});
   const [assessmentResults, setAssessmentResults] = useState({});
   const [showPaywall, setShowPaywall] = useState(false);
 
   // Get subscription status
   const { canUseFeature, isPremium, packages } = useSubscription(user?.id);
 
-  useEffect(() => {
-    fetchAssessments();
-  }, []);
+  // Refresh on focus so a just-submitted assessment shows its new status.
+  useFocusEffect(useCallback(() => { fetchAssessments(); }, []));
 
   async function fetchAssessments() {
     try {
@@ -51,6 +52,16 @@ export default function AssessmentsScreen() {
       if (!authUser) return;
 
       setUser(authUser);
+
+      const { data: sessions } = await supabase
+        .from('assessment_sessions')
+        .select('id, assessment_id')
+        .eq('user_id', authUser.id)
+        .eq('completed', true)
+        .order('submitted_at', { ascending: false });
+      const latest = {};
+      (sessions || []).forEach((s) => { latest[s.assessment_id] ||= s.id; });
+      setMySessions(latest);
 
       // Get couple unit
       const { data: coupleData } = await supabase
@@ -86,13 +97,20 @@ export default function AssessmentsScreen() {
   }
 
   function getAssessmentStatus(assessmentId) {
-    return completedAssessments.includes(assessmentId) ? 'completed' : 'available';
+    if (completedAssessments.includes(assessmentId)) return 'completed';
+    return mySessions[assessmentId] ? 'submitted' : 'available';
   }
 
   function handleAssessmentPress(assessment) {
     // Onboarding is taken solo at signup and is always free.
     if (assessment.id === 'onboarding-assessment') {
       router.push(`/assessment/${assessment.id}`);
+      return;
+    }
+
+    // Already finished: show your result (it links to the couple result once both are done).
+    if (mySessions[assessment.id]) {
+      router.push({ pathname: '/results/session/[sessionId]', params: { sessionId: mySessions[assessment.id] } });
       return;
     }
 
@@ -142,7 +160,7 @@ export default function AssessmentsScreen() {
                     isCompleted && styles.completedChipText,
                   ]}
                 >
-                  {isCompleted ? '✓ Completed' : 'Available'}
+                  {isCompleted ? '✓ Completed' : status === 'submitted' ? 'Waiting for partner' : 'Available'}
                 </Chip>
               )}
             </View>
@@ -168,7 +186,7 @@ export default function AssessmentsScreen() {
                 }
               })}
             >
-              <Text style={styles.viewResultsText}>View Results →</Text>
+              <Text style={styles.viewResultsText}>View Couple Results →</Text>
             </TouchableOpacity>
           )}
         </ScaleButton>

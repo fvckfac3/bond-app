@@ -341,6 +341,20 @@ export default function DashboardScreen() {
           </ScaleButton>
 
           <ScaleButton
+            onPress={() => router.push('/ai')}
+            style={styles.quickActionCard}
+          >
+            <View style={styles.quickActionContent}>
+              <Text style={styles.quickActionIcon}>🧠</Text>
+              <View style={styles.quickActionText}>
+                <Text style={styles.quickActionTitle}>AI Analyzers</Text>
+                <Text style={styles.quickActionSubtitle}>See the patterns in how you talk to each other</Text>
+              </View>
+              <Text style={styles.quickActionArrow}>→</Text>
+            </View>
+          </ScaleButton>
+
+          <ScaleButton
             onPress={() => router.push('/(tabs)/activities')}
             style={styles.quickActionCard}
           >

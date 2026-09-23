@@ -3,12 +3,15 @@
 
 import { useState, useEffect } from 'react';
 import { View, StyleSheet, Text, ScrollView, Dimensions, TouchableOpacity } from 'react-native';
-import { Card, ProgressBar } from 'react-native-paper';
+import { Button, Card, ProgressBar } from 'react-native-paper';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { supabase } from '../../services/supabase';
 import { fetchCompletedModules, fetchSeriesList } from '../../services/learning';
+import { requestRelationshipSummary, RelationshipSummary } from '../../services/insights';
+import { useInsight } from '../../hooks/useInsight';
+import InsightCard from '../../components/insights/InsightCard';
 import { colors, spacing, borderRadius, shadows, typography, touchTargets, motion } from '../../constants/theme';
 import FadeInView from '../../components/animated/FadeInView';
 
@@ -28,6 +31,9 @@ export default function ProgressScreen() {
   const [recentCheckIns, setRecentCheckIns] = useState([]);
   const [learning, setLearning] = useState<{ key: string; title: string; icon: string | null; done: number; total: number }[]>([]);
   const router = useRouter();
+  const [storedSummary, setStoredSummary] = useState<RelationshipSummary | null>(null);
+  // Generated on request (one per couple per calendar month, UTC — matching the backend).
+  const summary = useInsight<RelationshipSummary>(requestRelationshipSummary, storedSummary, false);
 
   useEffect(() => {
     fetchProgressData();
@@ -101,6 +107,16 @@ export default function ProgressScreen() {
       });
 
       setRecentCheckIns(checkInsData || []);
+
+      const now = new Date();
+      const periodStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString().slice(0, 10);
+      const { data: summaryRow } = await supabase
+        .from('relationship_summaries')
+        .select('status, content')
+        .eq('couple_unit_id', coupleData.id)
+        .eq('period_start', periodStart)
+        .maybeSingle();
+      if (summaryRow?.status === 'ready') setStoredSummary(summaryRow.content);
 
       // Learning progress is per person; show the series you've started.
       try {
@@ -228,6 +244,25 @@ export default function ProgressScreen() {
           </Card>
         </FadeInView>
 
+        {/* Relationship summary */}
+        <FadeInView delay={255}>
+          {summary.status === 'idle' ? (
+            <Card style={styles.card}>
+              <Card.Content>
+                <Text style={styles.cardTitle}>This month together</Text>
+                <Text style={styles.learningEmpty}>
+                  Get an AI summary of your month: highlights, patterns and what to focus on next.
+                </Text>
+                <Button mode="contained" style={styles.summaryButton} onPress={summary.start}>
+                  Get this month&apos;s summary
+                </Button>
+              </Card.Content>
+            </Card>
+          ) : (
+            <InsightCard kind="summary" title="This month together" state={summary} onRetry={summary.start} />
+          )}
+        </FadeInView>
+
         {/* Learning */}
         <FadeInView delay={270}>
           <Card style={styles.card}>
@@ -348,6 +383,10 @@ export default function ProgressScreen() {
 }
 
 const styles = StyleSheet.create({
+  summaryButton: {
+    marginTop: spacing.md,
+    alignSelf: 'flex-start',
+  },
   learningEmpty: {
     fontSize: typography.body.fontSize,
     color: colors.accent,
