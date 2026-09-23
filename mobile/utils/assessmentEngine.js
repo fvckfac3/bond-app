@@ -89,17 +89,19 @@ export const assessmentScoringConfigs = {
   'gottman-four-horsemen': {
     mode: 'risk-profile',
     dimensions: [
-      { key: 'criticism', label: 'Criticism', direction: 'risk' },
-      { key: 'contempt', label: 'Contempt', direction: 'risk' },
-      { key: 'defensiveness', label: 'Defensiveness', direction: 'risk' },
-      { key: 'stonewalling', label: 'Stonewalling', direction: 'risk' },
+      // Items are keyed so a higher average is healthier (problem behaviours are
+      // reverse-scored), so these are labelled by Gottman's antidotes, not flipped.
+      { key: 'criticism', label: 'Gentle Start-Up', direction: 'positive' },
+      { key: 'contempt', label: 'Respect & Appreciation', direction: 'positive' },
+      { key: 'defensiveness', label: 'Taking Responsibility', direction: 'positive' },
+      { key: 'stonewalling', label: 'Staying Engaged', direction: 'positive' },
     ],
     bands: defaultAssessmentBands,
   },
   'conflict-resolution': {
     mode: 'mixed-profile',
     dimensions: [
-      { key: 'avoidance', label: 'Avoidance', direction: 'risk' },
+      { key: 'avoidance', label: 'Addressing Issues', direction: 'positive' },
       { key: 'composure', label: 'Composure', direction: 'positive' },
       { key: 'compromise', label: 'Compromise', direction: 'positive' },
       { key: 'empathy', label: 'Empathy', direction: 'positive' },
@@ -362,12 +364,20 @@ function unique(list) {
   return [...new Set(list)];
 }
 
-function buildActions(dimensionScores) {
+// Same dimension key, different meaning in a specific assessment.
+const assessmentActionOverrides = {
+  'conflict-resolution': {
+    avoidance: 'Raise one small issue early, before it has time to build up.',
+  },
+};
+
+function buildActions(dimensionScores, assessmentId) {
+  const overrides = assessmentActionOverrides[assessmentId] || {};
   const growth = dimensionScores
     .slice()
     .sort((a, b) => a.score - b.score)
     .slice(0, 3)
-    .map((dimension) => dimensionActionMap[dimension.key] || dimensionActionMap.overall)
+    .map((dimension) => overrides[dimension.key] || dimensionActionMap[dimension.key] || dimensionActionMap.overall)
     .filter(Boolean);
 
   return unique(growth);
@@ -450,7 +460,7 @@ function buildProfileFromRawScores(assessmentId, storedScores = {}) {
   const topDimensions = storedScores.topDimensions || dimensionScores.slice().sort((a, b) => b.score - a.score).slice(0, 2);
   const strengths = storedScores.strengths || buildStrengths(dimensionScores);
   const growthAreas = storedScores.growthAreas || buildGrowthAreas(dimensionScores);
-  const recommendations = storedScores.recommendations || buildActions(dimensionScores);
+  const recommendations = storedScores.recommendations || buildActions(dimensionScores, assessmentId);
   const summary = storedScores.summary || buildSummary(assessmentId, { topDimensions, profileType }, assessment);
 
   return {
@@ -511,7 +521,7 @@ export function calculateAssessmentProfile(assessmentId, answers = {}) {
   const topDimensions = dimensionScores.slice().sort((a, b) => b.score - a.score).slice(0, 2);
   const strengths = buildStrengths(dimensionScores);
   const growthAreas = buildGrowthAreas(dimensionScores);
-  const recommendations = buildActions(dimensionScores);
+  const recommendations = buildActions(dimensionScores, assessmentId);
   const summary = buildSummary(assessmentId, { topDimensions, profileType }, assessment);
 
   return {

@@ -974,7 +974,7 @@ export const conflictResolutionQuestions = [
   },
   {
     id: 2,
-    text: 'I拖延 discussing difficult topics hoping they will resolve on their own',
+    text: 'I put off discussing difficult topics hoping they will resolve on their own',
     type: 'likert',
     scale: 5,
     category: 'avoidance',

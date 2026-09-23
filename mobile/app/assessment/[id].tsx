@@ -14,7 +14,7 @@ import {
   generateGenericQuestions,
 } from '../../utils/assessmentEngine';
 import { calculateCoupleAssessmentResult } from '../../utils/coupleAssessment';
-import { calculateOnboardingAssessmentProfile } from '../../utils/onboardingAssessment';
+import { calculateOnboardingAssessmentProfile, onboardingQuestions } from '../../utils/onboardingAssessment';
 
 export default function AssessmentTakeScreen() {
   const { id } = useLocalSearchParams();
@@ -37,6 +37,14 @@ export default function AssessmentTakeScreen() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
       setUserId(user.id);
+
+      // Onboarding has its own short question set and is saved to onboarding_assessments,
+      // so it doesn't create an assessment session (and doesn't count toward free-tier usage).
+      if (id === 'onboarding-assessment') {
+        setAssessment({ id, name: 'Couple Onboarding' });
+        setQuestions(onboardingQuestions);
+        return;
+      }
 
       // Find assessment
       const foundAssessment = allAssessments.find((a) => a.id === id);
@@ -232,9 +240,15 @@ export default function AssessmentTakeScreen() {
           setSubmitting(true);
           try {
             const profile = calculateOnboardingAssessmentProfile(answers);
-            await supabase.from('onboarding_assessments').upsert([{
+            const { data: couple } = await supabase
+              .from('couple_units')
+              .select('id')
+              .or(`user1_id.eq.${userId},user2_id.eq.${userId}`)
+              .eq('status', 'active')
+              .maybeSingle();
+            const { error } = await supabase.from('onboarding_assessments').upsert([{
               user_id: userId,
-              couple_unit_id: null,
+              couple_unit_id: couple?.id || null,
               assessment_id: id,
               assessment_kind: 'onboarding',
               answers,
@@ -250,6 +264,7 @@ export default function AssessmentTakeScreen() {
               completed: true,
               submitted_at: new Date().toISOString(),
             }], { onConflict: 'user_id,assessment_id' });
+            if (error) throw error;
             router.push({ pathname: '/results/[assessmentId]', params: { assessmentId: id } });
           } catch (error) {
             console.error(error);

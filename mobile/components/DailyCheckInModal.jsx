@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { View, StyleSheet, Text, Alert, Modal } from 'react-native';
 import { Card, Button, TextInput, Portal } from 'react-native-paper';
-import { Slider } from '@react-native-community/slider';
+import Slider from '@react-native-community/slider';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MotiView } from 'moti';
 import { supabase } from '../services/supabase';

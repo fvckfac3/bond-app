@@ -25,7 +25,6 @@ export default function ActivitiesScreen() {
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [showPaywall, setShowPaywall] = useState(false);
 
-  const categories = ['all', 'connection', 'communication', 'reflection', 'values'];
 
   // Get subscription status
   const { canUseFeature, packages } = useSubscription(user?.id);
@@ -58,6 +57,9 @@ export default function ActivitiesScreen() {
       setLoading(false);
     }
   }
+
+  // Filter chips come from the categories the activities actually use.
+  const categories = ['all', ...new Set(activities.map((a) => a.category).filter(Boolean))];
 
   const filteredActivities = selectedCategory === 'all'
     ? activities
@@ -158,7 +160,7 @@ export default function ActivitiesScreen() {
             </View>
             <Text style={styles.description}>{item.description}</Text>
             <View style={styles.metaInfo}>
-              <Text style={styles.metaText}>{item.estimated_time}</Text>
+              <Text style={styles.metaText}>{item.duration}</Text>
               <Text style={styles.metaDot}>•</Text>
               <Text style={styles.metaText}>{item.difficulty}</Text>
             </View>
@@ -245,8 +247,14 @@ export default function ActivitiesScreen() {
                   {selectedActivity.content.prompt && (
                     <Text style={styles.contentText}>{selectedActivity.content.prompt}</Text>
                   )}
-                  {selectedActivity.content.instructions && (
-                    <Text style={styles.contentText}>{selectedActivity.content.instructions}</Text>
+                  {[].concat(selectedActivity.content.instructions || []).map((line, index) => (
+                    <Text key={`i${index}`} style={styles.contentText}>• {line}</Text>
+                  ))}
+                  {selectedActivity.content.rules && (
+                    <Text style={styles.contentText}>{selectedActivity.content.rules}</Text>
+                  )}
+                  {selectedActivity.content.followUp && (
+                    <Text style={styles.contentText}>Afterwards: {selectedActivity.content.followUp}</Text>
                   )}
                 </View>
               )}

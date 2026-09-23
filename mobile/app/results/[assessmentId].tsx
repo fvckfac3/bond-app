@@ -6,7 +6,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { supabase } from '../../services/supabase';
 import { colors, spacing } from '../../constants/theme';
 import { allAssessments } from '../../utils/allAssessments';
-import { getOnboardingRecommendations } from '../../utils/onboardingAssessment';
+import { learningSeriesCatalog } from '../../content/series';
 import { useSubscription } from '../../hooks/useSubscription';
 import PaywallModal from '../../components/subscription/PaywallModal';
 import UpgradeButton from '../../components/subscription/UpgradeButton';
@@ -23,6 +23,7 @@ export default function ResultsScreen() {
   const [user1Data, setUser1Data] = useState(null);
   const [user2Data, setUser2Data] = useState(null);
   const [generatingInsights, setGeneratingInsights] = useState(false);
+  const [insightsFailed, setInsightsFailed] = useState(false);
   const [userId, setUserId] = useState(undefined);
   const [showPaywall, setShowPaywall] = useState(false);
   const insightsRequested = useRef(false);
@@ -43,7 +44,7 @@ export default function ResultsScreen() {
   useEffect(() => {
     if (insightsRequested.current || !subscriptionReady || loading) return;
     if (!coupleResult || !user1Data || !user2Data || onboardingResult) return;
-    if (coupleResult.couple_summary || coupleResult.ai_narrative) return;
+    if (coupleResult.ai_narrative) return;
     if (!canUseFeature('ai_insight')) return;
     insightsRequested.current = true;
     generateAIInsights(coupleResult.id, user1Data, user2Data);
@@ -55,17 +56,17 @@ export default function ResultsScreen() {
       setAssessment(foundAssessment);
 
       if (assessmentId === 'onboarding-assessment') {
+        setAssessment({ id: assessmentId, name: 'Couple Onboarding', icon: '🧭', framework: '' });
+        const { data: { user } } = await supabase.auth.getUser();
         const { data: onboardingData, error: onboardingError } = await supabase
           .from('onboarding_assessments')
           .select('*')
+          .eq('user_id', user?.id)
           .eq('assessment_id', assessmentId)
-          .order('created_at', { ascending: false })
-          .limit(1)
           .single();
 
         if (onboardingError) throw onboardingError;
         setCoupleResult({
-          compatibility_score: onboardingData?.couple_profile?.score || onboardingData?.coupleScore || 0,
           couple_summary: onboardingData?.feedback?.summary || onboardingData?.recommendations?.feedback || '',
           relationship_pattern_title: onboardingData?.recommendations?.headline || onboardingData?.feedback?.headline || 'Onboarding result',
           relationship_pattern_summary: onboardingData?.feedback?.summary || onboardingData?.recommendations?.feedback || '',
@@ -110,6 +111,7 @@ export default function ResultsScreen() {
 
   async function generateAIInsights(resultId, session1, session2) {
     setGeneratingInsights(true);
+    setInsightsFailed(false);
     try {
       const backendUrl = process.env.EXPO_PUBLIC_BACKEND_URL;
       
@@ -135,8 +137,12 @@ export default function ResultsScreen() {
       }
 
       const insights = await response.json();
+      // The backend reports generation failures in the body; never save those as insights.
+      if (insights.error || !insights.narrative) {
+        throw new Error(insights.error || 'Empty insight response');
+      }
 
-      await supabase
+      const { error: saveError } = await supabase
         .from('couple_results')
         .update({
           ai_narrative: insights.narrative,
@@ -146,65 +152,49 @@ export default function ResultsScreen() {
           framework_tags: insights.framework_tags,
         })
         .eq('id', resultId);
+      if (saveError) throw saveError;
 
       await loadResults();
     } catch (error) {
       logError(error, { tags: { feature: 'ai_insights' }, extra: { resultId } });
-      Alert.alert('Insights unavailable', 'We couldn’t generate insights right now. Please try again later.');
+      setInsightsFailed(true);
     } finally {
       setGeneratingInsights(false);
     }
   }
 
+  // Side-by-side 0-100 dimension scores for both partners, for every assessment.
   function renderScoreComparison() {
-    if (!user1Data?.scores || !user2Data?.scores) return null;
+    const dims1 = user1Data?.scores?.dimensionScores;
+    const dims2 = user2Data?.scores?.dimensionScores;
+    if (!Array.isArray(dims1) || !Array.isArray(dims2)) return null;
 
-    const scores1 = user1Data.scores;
-    const scores2 = user2Data.scores;
-
-    if (assessmentId === 'love-languages') {
-      const categories = ['words', 'time', 'gifts', 'acts', 'touch'];
-      return (
-        <View style={styles.comparisonContainer}>
-          {categories.map(cat => (
-            <View key={cat} style={styles.categoryRow}>
-              <Text style={styles.categoryLabel}>{cat.charAt(0).toUpperCase() + cat.slice(1)}</Text>
+    return (
+      <View style={styles.comparisonContainer}>
+        {dims1.map((dimension) => {
+          const partnerScore = dims2.find((d) => d.key === dimension.key)?.score ?? 0;
+          return (
+            <View key={dimension.key} style={styles.categoryRow}>
+              <Text style={styles.categoryLabel}>{dimension.label}</Text>
               <View style={styles.barsContainer}>
                 <View style={styles.barRow}>
                   <Text style={styles.barLabel}>{user1Data.users?.name}</Text>
-                  <View style={[styles.bar, styles.bar1, { width: `${Math.max((scores1[cat] || 0) * 10, 12)}%` }]}>
-                    <Text style={styles.barText}>{scores1[cat] || 0}</Text>
+                  <View style={[styles.bar, styles.bar1, { width: `${Math.max(dimension.score, 12)}%` }]}>
+                    <Text style={styles.barText}>{Math.round(dimension.score)}</Text>
                   </View>
                 </View>
                 <View style={styles.barRow}>
                   <Text style={styles.barLabel}>{user2Data.users?.name}</Text>
-                  <View style={[styles.bar, styles.bar2, { width: `${Math.max((scores2[cat] || 0) * 10, 12)}%` }]}>
-                    <Text style={styles.barText}>{scores2[cat] || 0}</Text>
+                  <View style={[styles.bar, styles.bar2, { width: `${Math.max(partnerScore, 12)}%` }]}>
+                    <Text style={styles.barText}>{Math.round(partnerScore)}</Text>
                   </View>
                 </View>
               </View>
             </View>
-          ))}
-        </View>
-      );
-    }
-
-    if (scores1.averageScore !== undefined) {
-      return (
-        <View style={styles.comparisonContainer}>
-          <View style={styles.scoreCard}>
-            <Text style={styles.scoreName}>{user1Data.users?.name}</Text>
-            <Text style={styles.scoreValue}>{scores1.averageScore?.toFixed(1)}/5</Text>
-          </View>
-          <View style={styles.scoreCard}>
-            <Text style={styles.scoreName}>{user2Data.users?.name}</Text>
-            <Text style={styles.scoreValue}>{scores2.averageScore?.toFixed(1)}/5</Text>
-          </View>
-        </View>
-      );
-    }
-
-    return null;
+          );
+        })}
+      </View>
+    );
   }
 
   function renderStructuredCoupleResult() {
@@ -398,6 +388,18 @@ export default function ResultsScreen() {
               <UpgradeButton onPress={() => setShowPaywall(true)} text="Unlock AI Insights" />
             </Card.Content>
           </Card>
+        ) : insightsFailed && !coupleResult?.ai_narrative ? (
+          <Card style={styles.card}>
+            <Card.Content>
+              <Text style={styles.cardTitle}>✨ Insights</Text>
+              <Text style={styles.generatingText}>
+                We couldn’t generate your insights just now.
+              </Text>
+              <Button mode="outlined" onPress={() => generateAIInsights(coupleResult.id, user1Data, user2Data)}>
+                Try again
+              </Button>
+            </Card.Content>
+          </Card>
         ) : coupleResult?.ai_narrative ? (
           <>
             <Card style={styles.card}>
@@ -466,12 +468,20 @@ export default function ResultsScreen() {
               <Divider style={{ marginVertical: spacing.md }} />
               <Text style={styles.cardTitle}>Recommended Next Assessments</Text>
               {(onboardingResult.recommended_assessments || []).map((item) => (
-                <Text key={item} style={styles.bullet}>• {item}</Text>
+                <Text
+                  key={item}
+                  style={styles.bullet}
+                  onPress={() => router.push(`/assessment/${item}`)}
+                >
+                  • {allAssessments.find((a) => a.id === item)?.name || item} →
+                </Text>
               ))}
               <Divider style={{ marginVertical: spacing.md }} />
               <Text style={styles.cardTitle}>Recommended Learning Series</Text>
               {(onboardingResult.recommended_series || []).map((item) => (
-                <Text key={item} style={styles.bullet}>• {item}</Text>
+                <Text key={item} style={styles.bullet}>
+                  • {learningSeriesCatalog.find((series) => series.key === item)?.title || item}
+                </Text>
               ))}
             </Card.Content>
           </Card>
@@ -618,23 +628,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: 'bold',
     color: colors.white,
-  },
-  scoreCard: {
-    backgroundColor: colors.blush,
-    padding: spacing.lg,
-    borderRadius: 12,
-    marginBottom: spacing.md,
-    alignItems: 'center',
-  },
-  scoreName: {
-    fontSize: 14,
-    color: colors.gray,
-    marginBottom: spacing.xs,
-  },
-  scoreValue: {
-    fontSize: 32,
-    fontWeight: 'bold',
-    color: colors.primary,
   },
   profileBlock: {
     marginBottom: spacing.md,

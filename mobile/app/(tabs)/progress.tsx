@@ -74,11 +74,10 @@ export default function ProgressScreen() {
         .eq('couple_unit_id', coupleData.id);
 
       // Get streak
-      const { data: streakData } = await supabase
-        .from('streaks')
-        .select('*')
-        .eq('couple_unit_id', coupleData.id)
+      const { data: streakRow } = await supabase
+        .rpc('get_couple_streak', { cu_id: coupleData.id })
         .single();
+      const streakData = streakRow as { current_streak: number; longest_streak: number } | null;
 
       // Get recent check-ins
       const { data: checkInsData } = await supabase

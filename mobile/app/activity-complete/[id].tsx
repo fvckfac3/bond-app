@@ -188,7 +188,9 @@ export default function ActivityCompleteScreen() {
         {parsedContent?.instructions && (
           <Card style={styles.card} animated={false}>
             <Text style={styles.promptLabel}>Instructions:</Text>
-            <Text style={styles.promptText}>{parsedContent.instructions}</Text>
+            {[].concat(parsedContent.instructions).map((line, index) => (
+              <Text key={index} style={styles.promptText}>• {line}</Text>
+            ))}
           </Card>
         )}
 

@@ -15,12 +15,14 @@ import FadeInView, { StaggerContainer, StaggerItem } from '../../components/anim
 import ScaleButton from '../../components/animated/ScaleButton';
 import { useSubscription } from '../../hooks/useSubscription';
 import PaywallModal from '../../components/subscription/PaywallModal';
+import { onboardingQuestions } from '../../utils/onboardingAssessment';
 
 const onboardingAssessment = {
   id: 'onboarding-assessment',
   name: 'Couple Onboarding',
   description: 'Start here to find the best assessments and learning series for where your relationship is right now.',
-  estimatedTime: '10 min',
+  estimatedTime: '3 min',
+  questionsCount: onboardingQuestions.length,
   icon: '🧭',
   category: 'onboarding',
 };
@@ -88,6 +90,12 @@ export default function AssessmentsScreen() {
   }
 
   function handleAssessmentPress(assessment) {
+    // Onboarding is taken solo at signup and is always free.
+    if (assessment.id === 'onboarding-assessment') {
+      router.push(`/assessment/${assessment.id}`);
+      return;
+    }
+
     if (!coupleUnit) {
       Alert.alert(
         'Partner Required',

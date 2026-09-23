@@ -152,15 +152,6 @@ export default function PartnerScreen() {
                 </Card.Content>
               </Card>
 
-              {coupleUnit?.relationship_stage && (
-                <Card style={styles.infoCard}>
-                  <Card.Content>
-                    <Text style={styles.infoLabel}>Relationship Stage</Text>
-                    <Text style={styles.infoValue}>{coupleUnit.relationship_stage}</Text>
-                  </Card.Content>
-                </Card>
-              )}
-
               <Card style={styles.infoCard}>
                 <Card.Content>
                   <Text style={styles.infoLabel}>Your Shared Journey</Text>

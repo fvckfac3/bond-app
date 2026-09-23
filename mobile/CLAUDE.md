@@ -15,7 +15,7 @@ Assessment content (16 modules: Gottman Method, EFT, Attachment Theory, NVC, Fiv
 
 ## Commands
 
-`npm start` / `npm run ios` / `npm run android` / `npm run web` / `npm run lint` (ESLint via `expo lint`, config in `eslint.config.js`). No test script is defined — don't assume `npm test` exists.
+`npm start` / `npm run ios` / `npm run android` / `npm run web` / `npm run lint` (ESLint via `expo lint`, config in `eslint.config.js`) / `npm run type-check` / `npm test` (Node's built-in test runner over `utils/*.test.mjs`; `test/register.mjs` lets Node resolve the app's extensionless imports). There's no React component test runner — screens are verified by bundling and on-device.
 
 ## Env
 
