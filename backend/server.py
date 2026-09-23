@@ -12,7 +12,6 @@ from supabase import create_client, Client
 from services.ai_insights import ai_insights_generator
 from routes.payments import router as payments_router
 from routes.analyzers import router as analyzers_router
-from routes.features import router as features_router
 from routes.stripe_webhook import router as stripe_webhook_router
 
 
@@ -33,7 +32,7 @@ api_router = APIRouter(prefix="/api")
 
 # Define Models
 class StatusCheck(BaseModel):
-    model_config = ConfigDict(extra="ignore")  # Ignore MongoDB's _id field
+    model_config = ConfigDict(extra="ignore")
     
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     client_name: str
@@ -104,7 +103,6 @@ async def generate_insights(request: AIInsightsRequest):
 app.include_router(api_router)
 app.include_router(payments_router)  # Include payments router
 app.include_router(analyzers_router)
-app.include_router(features_router)
 app.include_router(stripe_webhook_router)
 
 # Browser origins allowed to call the API. Native mobile requests send no Origin header,

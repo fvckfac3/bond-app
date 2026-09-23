@@ -2,7 +2,7 @@
  * BucketListScreen - Goals, dreams, and aspirations for the couple
  */
 import { useState, useEffect } from 'react';
-import { View, StyleSheet, Text, ScrollView, TouchableOpacity, RefreshControl, Modal, TextInput } from 'react-native';
+import { View, StyleSheet, Text, ScrollView, TouchableOpacity, RefreshControl, Modal, TextInput, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MotiView } from 'moti';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -11,6 +11,12 @@ import FadeInView, { StaggerContainer, StaggerItem } from '../../../components/a
 import ScaleButton from '../../../components/animated/ScaleButton';
 import SkeletonLoader from '../../../components/animated/SkeletonLoader';
 import { colors, spacing, shadows } from '../../../constants/theme';
+import { supabase } from '../../../services/supabase';
+
+// bucket_list.priority is 1-5 (1 = highest) in the database.
+const PRIORITY_TO_DB = { high: 1, medium: 3, low: 5 };
+const priorityFromDb = (value: number): BucketListItem['priority'] =>
+  value <= 2 ? 'high' : value >= 4 ? 'low' : 'medium';
 
 interface BucketListItem {
   id: string;
@@ -36,35 +42,64 @@ const CATEGORIES = {
 const PRIORITY_COLORS = { high: colors.error, medium: colors.gold, low: colors.teal };
 const STATUS_LABELS = { pending: 'To Do', in_progress: 'In Progress', completed: 'Done', archived: 'Archived' };
 
-const SAMPLE_ITEMS: BucketListItem[] = [
-  { id: '1', title: 'Visit Paris', description: 'Experience the city of love together', category: 'travel', priority: 'high', estimated_cost: '$3,000', status: 'pending' },
-  { id: '2', title: 'Learn to dance salsa', description: 'Take lessons together', category: 'learning', priority: 'medium', status: 'in_progress' },
-  { id: '3', title: 'Adopt a pet', description: 'Welcome a furry friend to our family', category: 'family', priority: 'high', status: 'pending' },
-  { id: '4', title: 'Beach road trip', description: 'Coastal drive along Highway 1', category: 'adventure', estimated_cost: '$1,500', status: 'completed' },
-  { id: '5', title: 'Monthly date nights', description: 'Establish a consistent date routine', category: 'romance', priority: 'medium', status: 'in_progress' },
-];
-
 export default function BucketListScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [items, setItems] = useState<BucketListItem[]>([]);
   const [filter, setFilter] = useState<'all' | 'pending' | 'completed'>('all');
   const [showAddModal, setShowAddModal] = useState(false);
+  const [coupleUnitId, setCoupleUnitId] = useState<string | null>(null);
+  const [userId, setUserId] = useState<string | null>(null);
+  const [notPaired, setNotPaired] = useState(false);
   const [newItem, setNewItem] = useState({ title: '', description: '', category: 'adventure' as BucketListItem['category'], priority: 'medium' as BucketListItem['priority'], estimated_cost: '', target_date: '' });
 
   useEffect(() => { loadItems(); }, []);
 
+  // The list is shared by the couple and read straight from Supabase (RLS: couple members only).
+  function toItem(row): BucketListItem {
+    return {
+      id: row.id,
+      title: row.title,
+      description: row.description ?? undefined,
+      category: row.category ?? 'other',
+      priority: priorityFromDb(row.priority ?? 3),
+      estimated_cost: row.estimated_cost ?? undefined,
+      target_date: row.target_date ?? undefined,
+      status: row.status ?? 'pending',
+      completed_date: row.completed_date ?? undefined,
+    };
+  }
+
   async function loadItems() {
     try {
-      const response = await fetch('/api/features/bucket-list/demo-couple');
-      const data = await response.json();
-      if (data.success && data.items?.length > 0) {
-        setItems(data.items);
-      } else {
-        setItems(SAMPLE_ITEMS);
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      setUserId(user.id);
+
+      const { data: couple } = await supabase
+        .from('couple_units')
+        .select('id')
+        .or(`user1_id.eq.${user.id},user2_id.eq.${user.id}`)
+        .eq('status', 'active')
+        .maybeSingle();
+
+      if (!couple) {
+        setNotPaired(true);
+        return;
       }
-    } catch {
-      setItems(SAMPLE_ITEMS);
+      setNotPaired(false);
+      setCoupleUnitId(couple.id);
+
+      const { data, error } = await supabase
+        .from('bucket_list')
+        .select('*')
+        .eq('couple_unit_id', couple.id)
+        .order('created_at', { ascending: true });
+      if (error) throw error;
+      setItems((data || []).map(toItem));
+    } catch (error) {
+      console.error('Error loading bucket list:', error);
+      Alert.alert('Error', 'Could not load your bucket list. Pull down to try again.');
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -74,30 +109,55 @@ export default function BucketListScreen() {
   function onRefresh() { setRefreshing(true); loadItems(); }
 
   async function updateStatus(itemId: string, newStatus: BucketListItem['status']) {
-    const updated = items.map(item => item.id === itemId ? { ...item, status: newStatus, completed_date: newStatus === 'completed' ? new Date().toISOString() : undefined } : item);
-    setItems(updated);
-    try {
-      await fetch(`/api/features/bucket-list/${itemId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: newStatus }),
-      });
-    } catch { /* Continue with optimistic update */ }
+    const previous = items;
+    const completedDate = newStatus === 'completed' ? new Date().toISOString().split('T')[0] : null;
+    setItems(items.map(item => item.id === itemId ? { ...item, status: newStatus, completed_date: completedDate ?? undefined } : item));
+
+    const { error } = await supabase
+      .from('bucket_list')
+      .update({ status: newStatus, completed_date: completedDate })
+      .eq('id', itemId);
+    if (error) {
+      console.error('Error updating bucket list item:', error);
+      setItems(previous);
+      Alert.alert('Error', 'Could not update this goal. Please try again.');
+    }
   }
 
   async function addItem() {
-    if (!newItem.title) return;
-    const item: BucketListItem = { id: Date.now().toString(), ...newItem, status: 'pending' };
-    try {
-      const response = await fetch('/api/features/bucket-list', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ couple_id: 'demo-couple', ...newItem }),
-      });
-      if (response.ok) {
-        setItems([...items, item]);
-      }
-    } catch { setItems([...items, item]); }
+    if (!newItem.title.trim()) return;
+    if (!coupleUnitId || !userId) {
+      Alert.alert('Partner Required', 'Connect with your partner to start your shared bucket list.');
+      return;
+    }
+    if (newItem.target_date && !/^\d{4}-\d{2}-\d{2}$/.test(newItem.target_date)) {
+      Alert.alert('Check the date', 'Please use the format YYYY-MM-DD.');
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from('bucket_list')
+      .insert({
+        couple_unit_id: coupleUnitId,
+        user_id: userId,
+        title: newItem.title.trim(),
+        description: newItem.description.trim() || null,
+        category: newItem.category,
+        priority: PRIORITY_TO_DB[newItem.priority],
+        estimated_cost: newItem.estimated_cost.trim() || null,
+        target_date: newItem.target_date || null,
+        status: 'pending',
+      })
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Error saving bucket list item:', error);
+      Alert.alert('Error', 'Could not save this goal. Please try again.');
+      return;
+    }
+
+    setItems([...items, toItem(data)]);
     setShowAddModal(false);
     setNewItem({ title: '', description: '', category: 'adventure', priority: 'medium', estimated_cost: '', target_date: '' });
   }
@@ -197,7 +257,7 @@ export default function BucketListScreen() {
           </StaggerContainer>
 
           {filteredItems.length === 0 && (
-            <FadeInView><View style={styles.emptyState}><Text style={styles.emptyIcon}>🎯</Text><Text style={styles.emptyTitle}>No items yet</Text><Text style={styles.emptySubtitle}>Add your first shared goal!</Text></View></FadeInView>
+            <FadeInView><View style={styles.emptyState}><Text style={styles.emptyIcon}>🎯</Text><Text style={styles.emptyTitle}>{notPaired ? 'Connect with your partner' : 'No items yet'}</Text><Text style={styles.emptySubtitle}>{notPaired ? 'Your bucket list is shared with your partner.' : 'Add your first shared goal!'}</Text></View></FadeInView>
           )}
 
           <FadeInView delay={200}>

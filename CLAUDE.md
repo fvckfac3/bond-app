@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Bond is a relationship-wellness app for couples. This repo holds four independent components sharing one repo — there is no root package.json/workspace linking them:
 
 - `mobile/` — Expo/React Native app. **This is the product.** 100% of real user-facing screens live here. See `mobile/CLAUDE.md` for mobile-specific conventions.
-- `backend/` — FastAPI thin services layer (AI insight generation, 5 communication analyzers, Stripe billing). Not a general CRUD API — mobile talks to Supabase directly for everything else.
+- `backend/` — FastAPI thin services layer (AI insight generation, 5 communication analyzers, Stripe billing). Not a general CRUD API — mobile talks to Supabase directly for everything else. There is no MongoDB anywhere; the old Mongo-backed `routes/features.py` was removed.
 - `frontend/` — Create React App + shadcn scaffold. **Vestigial — has no Bond-specific screens.** Do not build features against it unless a human has explicitly decided to revive a web client.
 - `supabase/` — Postgres schema, migrations, seeds. `supabase/bond_schema.sql` (not the `migrations/` folder) is the canonical source of truth for current tables — the migrations folder is incomplete (missing 001 and 005).
 
@@ -22,6 +22,7 @@ Full product/architecture requirements live in `PRDs'@/` — read `PRDs'@/00_Mas
 - Do not assume `assessment_questions`/`assessment_dimensions`/`assessment_bands` (Supabase tables) are the assessment content source — they're unused. Real assessment content lives in `mobile/utils/allAssessments.js` and sibling files.
 - Never hardcode an API key or secret in a markdown file, even as a placeholder — this repo has had a real key exposure this way. Use `.env.example` with placeholder values only.
 - Stripe webhooks are handled only by `backend/routes/stripe_webhook.py` (`POST /api/webhooks/stripe`); the duplicate handler in `payments.py` was removed. Idempotency is a claim-first insert into the `webhook_events` table (`event_id` UNIQUE), not in-memory — point the Stripe Dashboard at `/api/webhooks/stripe`.
+- Memory Lane (`app/memory-lane.tsx`) and Bucket List (`app/bucket-list.tsx`) read and write the `memory_lane` / `bucket_list` tables directly from the app under couple-scoped RLS (migration 009). The other `src/screens/features/` prototypes (Daily Questions, Check-in Topics, Monthly Deep Dive) are unrouted and still call the removed `/api/features` endpoints — port them to Supabase the same way before routing them.
 - Premium is per couple: a user is Premium if they or their active partner holds an active subscription. Mobile reads it via the `get_couple_subscription()` SQL function (defined at the end of `supabase/bond_schema.sql` — must be applied to the live DB); the backend's `/api/subscription/user/{id}` checks both partners. Free-tier usage limits (assessments/activities) are still counted per user.
 
 ## Backend env vars

@@ -11,6 +11,7 @@ import FadeInView, { StaggerContainer, StaggerItem } from '../../../components/a
 import ScaleButton from '../../../components/animated/ScaleButton';
 import SkeletonLoader from '../../../components/animated/SkeletonLoader';
 import { colors, spacing, shadows } from '../../../constants/theme';
+import { supabase } from '../../../services/supabase';
 
 interface Memory {
   id: string;
@@ -31,40 +32,68 @@ const MEMORY_TYPES = {
   other: { icon: '📝', color: colors.gray, label: 'Memory' },
 };
 
-const SAMPLE_MEMORIES: Memory[] = [
-  { id: '1', title: 'First Date', memory_date: '2023-06-15', memory_type: 'date', description: 'Coffee shop on Main Street', tags: ['first', 'love'] },
-  { id: '2', title: 'First Trip Together', memory_date: '2023-08-20', memory_type: 'milestone', description: 'Beach weekend getaway', location: 'Coastal Heights', tags: ['travel', 'milestone'] },
-  { id: '3', title: 'Moving In Together', memory_date: '2023-12-01', memory_type: 'milestone', description: 'Our first apartment', tags: ['home', 'milestone'] },
-  { id: '4', title: 'Surprise Birthday Party', memory_date: '2024-02-14', memory_type: 'moment', description: 'The look on their face was priceless', tags: ['celebration'] },
-  { id: '5', title: 'Marathon Training', memory_date: '2024-04-10', memory_type: 'achievement', description: 'Completed our first 5K together', tags: ['fitness', 'goal'] },
-];
-
 export default function MemoryLaneScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [memories, setMemories] = useState<Memory[]>([]);
   const [timeline, setTimeline] = useState<Record<string, Memory[]>>({});
   const [showAddModal, setShowAddModal] = useState(false);
+  const [coupleUnitId, setCoupleUnitId] = useState<string | null>(null);
+  const [userId, setUserId] = useState<string | null>(null);
+  const [notPaired, setNotPaired] = useState(false);
   const [newMemory, setNewMemory] = useState({ title: '', description: '', memory_date: '', memory_type: 'moment' as Memory['memory_type'], location: '' });
 
   useEffect(() => {
     loadMemories();
   }, []);
 
+  // Memories are shared by the couple and read straight from Supabase (RLS: couple members only).
+  function toMemory(row): Memory {
+    return {
+      id: row.id,
+      title: row.title,
+      description: row.description ?? undefined,
+      memory_date: row.memory_date,
+      memory_type: row.category ?? 'other',
+      photos: row.photo_url ? [row.photo_url] : [],
+      location: row.location ?? undefined,
+      tags: row.tags ?? [],
+    };
+  }
+
   async function loadMemories() {
     try {
-      const response = await fetch('/api/features/memory-lane/demo-couple');
-      const data = await response.json();
-      if (data.success && data.memories?.length > 0) {
-        setMemories(data.memories);
-        organizeTimeline(data.memories);
-      } else {
-        setMemories(SAMPLE_MEMORIES);
-        organizeTimeline(SAMPLE_MEMORIES);
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      setUserId(user.id);
+
+      const { data: couple } = await supabase
+        .from('couple_units')
+        .select('id')
+        .or(`user1_id.eq.${user.id},user2_id.eq.${user.id}`)
+        .eq('status', 'active')
+        .maybeSingle();
+
+      if (!couple) {
+        setNotPaired(true);
+        return;
       }
-    } catch {
-      setMemories(SAMPLE_MEMORIES);
-      organizeTimeline(SAMPLE_MEMORIES);
+      setNotPaired(false);
+      setCoupleUnitId(couple.id);
+
+      const { data, error } = await supabase
+        .from('memory_lane')
+        .select('*')
+        .eq('couple_unit_id', couple.id)
+        .order('memory_date', { ascending: false });
+      if (error) throw error;
+
+      const list = (data || []).map(toMemory);
+      setMemories(list);
+      organizeTimeline(list);
+    } catch (error) {
+      console.error('Error loading memories:', error);
+      Alert.alert('Error', 'Could not load your memories. Pull down to try again.');
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -93,28 +122,38 @@ export default function MemoryLaneScreen() {
       Alert.alert('Missing Info', 'Please add a title and date.');
       return;
     }
-
-    const memory: Memory = {
-      id: Date.now().toString(),
-      ...newMemory,
-    };
-
-    try {
-      const response = await fetch('/api/features/memory-lane', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ couple_id: 'demo-couple', ...newMemory }),
-      });
-      if (response.ok) {
-        const updated = [...memories, memory];
-        setMemories(updated);
-        organizeTimeline(updated);
-      }
-    } catch {
-      const updated = [...memories, memory];
-      setMemories(updated);
-      organizeTimeline(updated);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(newMemory.memory_date)) {
+      Alert.alert('Check the date', 'Please use the format YYYY-MM-DD.');
+      return;
     }
+    if (!coupleUnitId || !userId) {
+      Alert.alert('Partner Required', 'Connect with your partner to start your Memory Lane.');
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from('memory_lane')
+      .insert({
+        couple_unit_id: coupleUnitId,
+        user_id: userId,
+        title: newMemory.title.trim(),
+        description: newMemory.description.trim() || null,
+        memory_date: newMemory.memory_date,
+        category: newMemory.memory_type,
+        location: newMemory.location.trim() || null,
+      })
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Error saving memory:', error);
+      Alert.alert('Error', 'Could not save this memory. Please try again.');
+      return;
+    }
+
+    const updated = [...memories, toMemory(data)];
+    setMemories(updated);
+    organizeTimeline(updated);
 
     setShowAddModal(false);
     setNewMemory({ title: '', description: '', memory_date: '', memory_type: 'moment', location: '' });
@@ -171,6 +210,21 @@ export default function MemoryLaneScreen() {
               </View>
             </View>
           </FadeInView>
+
+          {notPaired && (
+            <View style={styles.emptyState}>
+              <Text style={styles.emptyText}>
+                Connect with your partner to start your shared Memory Lane.
+              </Text>
+            </View>
+          )}
+          {!notPaired && memories.length === 0 && (
+            <View style={styles.emptyState}>
+              <Text style={styles.emptyText}>
+                No memories yet. Add the first moment you want to remember together.
+              </Text>
+            </View>
+          )}
 
           {/* Timeline */}
           {Object.entries(timeline).sort(([a], [b]) => Number(b) - Number(a)).map(([year, yearMemories]) => (
@@ -297,6 +351,8 @@ export default function MemoryLaneScreen() {
 }
 
 const styles = StyleSheet.create({
+  emptyState: { padding: spacing.lg, alignItems: 'center' },
+  emptyText: { fontSize: 15, color: colors.gray, textAlign: 'center', lineHeight: 22 },
   container: { flex: 1, backgroundColor: colors.background },
   headerGradient: { paddingBottom: spacing.lg },
   header: { padding: spacing.lg },

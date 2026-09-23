@@ -293,7 +293,7 @@ export default function DashboardScreen() {
               <Text style={styles.quickActionIcon}>💝</Text>
               <View style={styles.quickActionText}>
                 <Text style={styles.quickActionTitle}>Daily Check-In</Text>
-                <Text style={styles.quickActionSubtitle}>Share how you're feeling today</Text>
+                <Text style={styles.quickActionSubtitle}>Share how you’re feeling today</Text>
               </View>
               <Text style={styles.quickActionArrow}>→</Text>
             </View>
@@ -308,6 +308,34 @@ export default function DashboardScreen() {
               <View style={styles.quickActionText}>
                 <Text style={styles.quickActionTitle}>Browse Activities</Text>
                 <Text style={styles.quickActionSubtitle}>Strengthen your bond together</Text>
+              </View>
+              <Text style={styles.quickActionArrow}>→</Text>
+            </View>
+          </ScaleButton>
+
+          <ScaleButton
+            onPress={() => router.push('/memory-lane')}
+            style={styles.quickActionCard}
+          >
+            <View style={styles.quickActionContent}>
+              <Text style={styles.quickActionIcon}>📸</Text>
+              <View style={styles.quickActionText}>
+                <Text style={styles.quickActionTitle}>Memory Lane</Text>
+                <Text style={styles.quickActionSubtitle}>Moments you want to remember together</Text>
+              </View>
+              <Text style={styles.quickActionArrow}>→</Text>
+            </View>
+          </ScaleButton>
+
+          <ScaleButton
+            onPress={() => router.push('/bucket-list')}
+            style={styles.quickActionCard}
+          >
+            <View style={styles.quickActionContent}>
+              <Text style={styles.quickActionIcon}>🌟</Text>
+              <View style={styles.quickActionText}>
+                <Text style={styles.quickActionTitle}>Bucket List</Text>
+                <Text style={styles.quickActionSubtitle}>Dreams and goals you share</Text>
               </View>
               <Text style={styles.quickActionArrow}>→</Text>
             </View>
