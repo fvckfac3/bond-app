@@ -4,8 +4,7 @@
     "slug": "bond-app",
     "version": "1.0.0",
     "description": "A science-backed relationship wellness platform helping couples deepen their connection through validated assessments, daily check-ins, and personalized AI insights.",
-    "owner": "bond-app",
-    "privacy": "public",
+    "owner": "hayesrocky64",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -41,6 +40,7 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
+      "./plugins/withAsyncStorageLocalRepo.js",
       "expo-router",
       [
         "expo-font",
@@ -69,15 +69,15 @@
       ]
     ],
     "scheme": "bond",
-    "newArchEnabled": false,
     "updates": {
       "fallbackToCacheTimeout": 0
     },
+    "runtimeVersion": "1.0.0",
     "extra": {
+      "router": {},
       "eas": {
-        "projectId": "update-with-your-project-id"
+        "projectId": "9ba89feb-e77b-46bf-9231-77f227e6d990"
       }
-    },
-    "runtimeVersion": "1.0.0"
+    }
   }
 }
