@@ -10,6 +10,7 @@ export function initializeSentry() {
     return;
   }
 
+  try {
   Sentry.init({
     dsn: SENTRY_DSN,
     
@@ -56,20 +57,12 @@ export function initializeSentry() {
       
       return event;
     },
-    
-    // Integrations
-    integrations: [
-      new Sentry.ReactNativeTracing({
-        // Pass instrumentation to be used as `routingInstrumentation`
-        routingInstrumentation: new Sentry.ReactNavigationInstrumentation(),
-        
-        // How long to wait for the app to mount before timing out
-        tracingOrigins: ['localhost', 'bondapp.com', /^\//],
-      }),
-    ],
   });
   
   console.log('Sentry initialized successfully');
+  } catch (error) {
+    console.warn('Sentry init failed:', error);
+  }
 }
 
 // Helper functions for error tracking
