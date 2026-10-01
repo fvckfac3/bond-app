@@ -70,13 +70,15 @@ export default function DashboardScreen() {
           ? coupleData.user2_id
           : coupleData.user1_id;
 
-        const { data: partnerData } = await supabase
-          .from('users')
-          .select('*')
-          .eq('id', partnerId)
-          .single();
+        if (partnerId) {
+          const { data: partnerData } = await supabase
+            .from('users')
+            .select('*')
+            .eq('id', partnerId)
+            .single();
 
-        setPartner(partnerData);
+          setPartner(partnerData);
+        }
 
         // Get completed assessments count
         const { count } = await supabase
@@ -155,7 +157,7 @@ export default function DashboardScreen() {
                 </Text>
               ) : (
                 <Text style={styles.subgreeting}>
-                  Connect with your partner to begin your journey
+                  Explore on your own, and invite your partner whenever you’re ready
                 </Text>
               )}
             </View>

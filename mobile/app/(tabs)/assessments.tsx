@@ -160,7 +160,7 @@ export default function AssessmentsScreen() {
                     isCompleted && styles.completedChipText,
                   ]}
                 >
-                  {isCompleted ? '✓ Completed' : status === 'submitted' ? 'Waiting for partner' : 'Available'}
+                  {isCompleted ? '✓ Completed' : status === 'submitted' ? (coupleUnit?.user2_id ? 'Waiting for partner' : '✓ Done') : 'Available'}
                 </Chip>
               )}
             </View>
@@ -238,7 +238,7 @@ export default function AssessmentsScreen() {
 
           {coupleUnit && (
             <ProgressBar
-              progress={completedAssessments.length / allAssessments.length}
+              progress={(coupleUnit.user2_id ? completedAssessments.length : Object.keys(mySessions).length) / allAssessments.length}
               color={colors.teal}
               style={styles.progressBar}
             />

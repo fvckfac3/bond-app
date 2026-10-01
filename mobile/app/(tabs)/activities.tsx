@@ -14,6 +14,7 @@ import ScaleButton from '../../components/animated/ScaleButton';
 import { fetchSeriesList } from '../../services/learning';
 import { useSubscription } from '../../hooks/useSubscription';
 import PaywallModal from '../../components/subscription/PaywallModal';
+import { lockTabSwipe, unlockTabSwipe } from '../../utils/tabSwipe';
 
 export default function ActivitiesScreen() {
   const [loading, setLoading] = useState(true);
@@ -156,6 +157,9 @@ export default function ActivitiesScreen() {
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
+        onTouchStart={lockTabSwipe}
+        onTouchEnd={unlockTabSwipe}
+        onTouchCancel={unlockTabSwipe}
         style={styles.categoryScroll}
         contentContainerStyle={styles.categoryContent}
       >

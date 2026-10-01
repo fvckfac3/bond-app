@@ -8,7 +8,10 @@ export interface CoupleContext {
   partnerId: string | null;
 }
 
-/** Null when signed out; coupleUnitId/partnerId are null until the user is paired. */
+/**
+ * Null when signed out. Every user has an active unit (a solo one until they pair, see
+ * migration 020), so gate partner-only UI on partnerId, not coupleUnitId.
+ */
 export async function getCoupleContext(): Promise<CoupleContext | null> {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return null;

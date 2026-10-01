@@ -65,6 +65,17 @@ export default function ProgressScreen() {
         .select('*', { count: 'exact', head: true })
         .eq('couple_unit_id', coupleData.id);
 
+      // On your own there are no couple results, so count the assessments you've finished.
+      let soloAssessments = 0;
+      if (!coupleData.user2_id) {
+        const { data: mine } = await supabase
+          .from('assessment_sessions')
+          .select('assessment_id')
+          .eq('user_id', user.id)
+          .eq('completed', true);
+        soloAssessments = new Set((mine || []).map((row) => row.assessment_id)).size;
+      }
+
       // Get completed activities count
       const { count: activitiesCount } = await supabase
         .from('activity_completions')
@@ -98,7 +109,7 @@ export default function ProgressScreen() {
         .limit(7);
 
       setStats({
-        totalAssessments: assessmentsCount || 0,
+        totalAssessments: coupleData.user2_id ? assessmentsCount || 0 : soloAssessments,
         totalActivities: activitiesCount || 0,
         checkInsCount: checkInsCount || 0,
         messagesCount: messagesCount || 0,

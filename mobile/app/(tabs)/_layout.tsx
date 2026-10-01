@@ -2,22 +2,50 @@
 // Built following: mobile-design, ui-ux-patterns
 // Clean tab bar with proper touch targets
 
-import { Tabs } from 'expo-router';
+import { useMemo, useRef } from 'react';
+import { PanResponder, View } from 'react-native';
+import { Tabs, useRouter, useSegments } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, spacing, borderRadius, touchTargets, typography } from '../../constants/theme';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { isHorizontalDrag, isTabSwipeLocked, swipeTarget } from '../../utils/tabSwipe';
 
 export default function TabsLayout() {
+  const router = useRouter();
+  const insets = useSafeAreaInsets();
+  const segments = useSegments();
+  const currentTab = useRef<string | undefined>(undefined);
+  currentTab.current = segments[segments.length - 1];
+
+  // Swipe left/right anywhere on a tab screen to move to the neighbouring tab.
+  const swipe = useMemo(
+    () =>
+      PanResponder.create({
+        onMoveShouldSetPanResponderCapture: (_e, g) => !isTabSwipeLocked() && isHorizontalDrag(g.dx, g.dy),
+        onPanResponderRelease: (_e, g) => {
+          const target = swipeTarget(currentTab.current, g.dx, g.dy, g.vx);
+          if (target) router.navigate(`/(tabs)/${target}` as any);
+        },
+        onPanResponderTerminationRequest: () => true,
+      }),
+    [router]
+  );
+
   return (
+    <View style={{ flex: 1 }} {...swipe.panHandlers}>
     <Tabs
       screenOptions={{
+        animation: 'shift',
         tabBarActiveTintColor: colors.accent,
         tabBarInactiveTintColor: colors.gray,
         tabBarStyle: {
           backgroundColor: colors.white,
           borderTopColor: colors.lightGray,
           borderTopWidth: 1,
-          height: 60,
-          paddingBottom: spacing.xs,
+          // Android draws edge to edge, so the system navigation buttons sit on top of the
+          // bar unless it is raised by the bottom inset.
+          height: 60 + insets.bottom,
+          paddingBottom: spacing.xs + insets.bottom,
           paddingTop: spacing.xs,
         },
         tabBarLabelStyle: {
@@ -101,5 +129,6 @@ export default function TabsLayout() {
         }}
       />
     </Tabs>
+    </View>
   );
 }

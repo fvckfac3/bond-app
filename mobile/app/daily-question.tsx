@@ -113,7 +113,7 @@ export default function DailyQuestionScreen() {
         { onConflict: 'user_id,question_id,response_date' }
       );
       if (saveError) throw saveError;
-      trackEvent(AnalyticsEvents.DAILY_QUESTION_ANSWERED, { depth: question.depth, paired: Boolean(ctx.coupleUnitId) });
+      trackEvent(AnalyticsEvents.DAILY_QUESTION_ANSWERED, { depth: question.depth, paired: Boolean(ctx.partnerId) });
       await load();
     } catch (e) {
       console.error('Error saving answer:', e);
@@ -186,9 +186,9 @@ export default function DailyQuestionScreen() {
                       style={styles.input}
                     />
                     <Text style={styles.hint}>
-                      {ctx?.coupleUnitId
+                      {ctx?.partnerId
                         ? 'You’ll see your partner’s answer once you’ve both answered.'
-                        : 'Pair with your partner to see each other’s answers.'}
+                        : 'Your answers are saved for you. Pair with your partner to see each other’s.'}
                     </Text>
                     <Button
                       mode="contained"
@@ -204,7 +204,7 @@ export default function DailyQuestionScreen() {
                 </Card>
               )}
 
-              {answered && ctx?.coupleUnitId ? (
+              {answered && ctx?.partnerId ? (
                 <Card style={styles.card}>
                   <Card.Content>
                     <Text style={styles.label}>Your partner&apos;s answer</Text>
@@ -229,7 +229,7 @@ export default function DailyQuestionScreen() {
                     <Text style={styles.pastQuestion}>{day.question}</Text>
                     <Text style={styles.label}>You</Text>
                     <Text style={styles.body}>{day.mine}</Text>
-                    {ctx?.coupleUnitId ? (
+                    {ctx?.partnerId ? (
                       <>
                         <Text style={styles.label}>Your partner</Text>
                         <Text style={day.partner ? styles.body : styles.muted}>{day.partner || 'No answer that day'}</Text>

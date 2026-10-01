@@ -69,13 +69,15 @@ export default function MessagesScreen() {
           ? coupleData.user2_id
           : coupleData.user1_id;
 
-        const { data: partnerData } = await supabase
-          .from('users')
-          .select('*')
-          .eq('id', partnerId)
-          .single();
+        if (partnerId) {
+          const { data: partnerData } = await supabase
+            .from('users')
+            .select('*')
+            .eq('id', partnerId)
+            .single();
 
-        setPartner(partnerData);
+          setPartner(partnerData);
+        }
       }
     } catch (error) {
       console.error('Error initializing chat:', error);

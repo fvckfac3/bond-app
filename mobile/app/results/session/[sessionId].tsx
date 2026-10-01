@@ -47,7 +47,7 @@ export default function IndividualResultScreen() {
         .maybeSingle();
       if (insight?.status === 'ready') setStoredInsight(insight.content);
 
-      if (context?.coupleUnitId) {
+      if (context?.partnerId) {
         const [{ data: result }, { data: partnerSession }] = await Promise.all([
           supabase.from('couple_results').select('id').eq('couple_unit_id', context.coupleUnitId).eq('assessment_id', row.assessment_id).maybeSingle(),
           // Readable only once you've completed the same assessment (paired gate in RLS).
@@ -182,7 +182,7 @@ export default function IndividualResultScreen() {
                   See couple results
                 </Button>
               </>
-            ) : ctx?.coupleUnitId ? (
+            ) : ctx?.partnerId ? (
               <Text style={styles.body}>
                 {partnerDone
                   ? 'Your partner has finished too — your couple results are being prepared. Check back in a moment.'
