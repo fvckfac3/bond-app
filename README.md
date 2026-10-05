@@ -420,27 +420,16 @@ If both partners want their own premium accounts (rare, but available).
 ### Institutional (Organizations, Therapists, Coaches)
 For therapists, couples counselors, retreat centers, and organizations wanting to offer Bond to their clients/participants.
 
-**Options:**
+Clinicians get a dashboard (`clinician-web/`) showing only what a couple chooses to share with them, plus activity counts. Both partners must consent before a clinic sees anything, and either can withdraw at any time. Private reflections are never visible to a partner or a clinician.
 
-**Therapist/Coach License** (5-10 couples)
-- White-label access for your clients
-- No branding of Bond
-- Use as between-session homework
-- Client progress tracking (you see aggregate usage, not content)
-- $149/month
+| Tier | Monthly | Billed annually | Active seats included | Extra seats |
+|---|---|---|---|---|
+| **Private Practice** | $49/mo | $39/mo | 10 | $5/seat/mo |
+| **Clinical Group** | $199/mo | $159/mo | 50 | $4/seat/mo |
+| **Treatment Center** | $499/mo | $399/mo | 150 | $3/seat/mo |
+| **Enterprise** | Custom | Custom | By contract | By contract |
 
-**Organization License** (Unlimited couples)
-- For retreat centers, nonprofits, corporations, universities
-- Custom branding (optional)
-- Admin dashboard with usage analytics
-- Batch user management
-- Dedicated support
-- Custom pricing based on scope
-
-**Volume Pricing**
-- Ask about discounts for 50+ couples
-- Enterprise SLA available
-- Technical integration support
+An active seat is a consented couple with activity in the last 30 days. Institutional use requires a commercial license; see [LICENSE-POLICY.md](LICENSE-POLICY.md).
 
 **For inquiries**: institutional@bond.app
 
@@ -467,7 +456,7 @@ Your account data is yours. You can download everything, or delete it. No judgme
 No, Bond is **not therapy**. We're a learning and connection platform. If you need professional help, we can point you toward resources.
 
 **Is my data private?**
-Completely. We use end-to-end encryption, and we never sell or share your data. We comply with HIPAA standards for healthcare privacy.
+Completely. We use end-to-end encryption, and we never sell or share your data. Bond is not a HIPAA-covered service today; the clinician features are built to support HIPAA technical safeguards, but compliance has not been established.
 
 ---
 
@@ -477,6 +466,7 @@ Completely. We use end-to-end encryption, and we never sell or share your data. 
 - `backend/` — FastAPI thin services layer (AI insights, the four text analyzers, Stripe billing). Not a general CRUD API — the mobile app talks to Supabase directly for everything else.
 - `frontend/` — Create React App scaffold. Vestigial; has no Bond-specific screens. See `frontend/README.md`.
 - `supabase/` — Postgres schema, migrations, seeds. `supabase/bond_schema.sql` is the canonical source of truth for current tables (not the `migrations/` folder, which is incomplete).
+- `clinician-web/` — Next.js 14 clinician/institutional dashboard (migration 021). See `clinician-web/README.md`.
 
 Full product/architecture requirements live in `PRDs'/` — read `PRDs'/00_Master_Index-1.md` first. See the repo-root `CLAUDE.md` for the full set of binding project rules.
 
@@ -507,11 +497,27 @@ make check          # black + isort + flake8 + mypy
 make test            # pytest
 ```
 
+### Clinician dashboard (`clinician-web/`)
+
+```bash
+cd clinician-web
+npm ci
+cp .env.example .env.local   # Supabase URL, anon key, service-role key (audit writes only)
+npm run dev
+npm run type-check && npm run lint && npm test && npm run build
+```
+
 ---
 
 ## Deployment
 
 The backend deploys to **Render** — see `DEPLOY_RENDER_GUIDE.md` and the `render.yaml` Blueprint at the repo root. Other deployment guides (Fly, Railway, PythonAnywhere, Vercel) are kept for reference under `archive/deployment-guides/` but are not the deployment path in use.
+
+---
+
+## License
+
+Bond's source is dual-licensed: [GNU AGPLv3](LICENSE) for individuals and self-hosters, and a paid Institutional Commercial License for clinics, therapists, group practices and treatment centers. See [LICENSE-POLICY.md](LICENSE-POLICY.md), [DUAL-LICENSE.md](DUAL-LICENSE.md) and, for contributors, [CLA.md](CLA.md). Use of the hosted Bond service is governed by the [Terms of Service](legal/TERMS_OF_SERVICE.md).
 
 ---
 
