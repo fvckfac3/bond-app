@@ -4,7 +4,7 @@ import { Button, RadioButton, Card, ProgressBar } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { supabase } from '../../services/supabase';
-import { requestCoupleInsight } from '../../services/insights';
+import { requestCoupleInsight, requestOnboardingIndividualInsight, requestOnboardingCoupleInsight } from '../../services/insights';
 import { colors, spacing } from '../../constants/theme';
 import {
   allAssessments,
@@ -250,7 +250,7 @@ export default function AssessmentTakeScreen() {
               .or(`user1_id.eq.${userId},user2_id.eq.${userId}`)
               .eq('status', 'active')
               .maybeSingle();
-            const { error } = await supabase.from('onboarding_assessments').upsert([{
+            const { data: onboardingRow, error } = await supabase.from('onboarding_assessments').upsert([{
               user_id: userId,
               couple_unit_id: couple?.id || null,
               assessment_id: id,
@@ -264,11 +264,31 @@ export default function AssessmentTakeScreen() {
               },
               recommended_assessments: profile.recommendedAssessments,
               recommended_series: profile.recommendedSeries,
+              baseline_scores: profile.baselineScores,
               feedback: profile.feedback,
               completed: true,
               submitted_at: new Date().toISOString(),
-            }], { onConflict: 'user_id,assessment_id' });
+            }], { onConflict: 'user_id,assessment_id' }).select().single();
             if (error) throw error;
+
+            // Fire the private baseline insight now; the result screen polls for it. If the
+            // partner has already finished onboarding too, ask for the shared couple insight
+            // as well (idempotent — whichever partner finishes second effectively kicks it off).
+            requestOnboardingIndividualInsight(onboardingRow.id);
+            if (couple?.id) {
+              const { data: partnerOnboarding } = await supabase
+                .from('onboarding_assessments')
+                .select('id')
+                .eq('couple_unit_id', couple.id)
+                .eq('assessment_id', id)
+                .eq('completed', true)
+                .neq('user_id', userId)
+                .limit(1);
+              if (partnerOnboarding?.length) {
+                requestOnboardingCoupleInsight(couple.id);
+              }
+            }
+
             router.push({ pathname: '/results/[assessmentId]', params: { assessmentId: id } });
           } catch (error) {
             console.error(error);

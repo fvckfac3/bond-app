@@ -17,6 +17,8 @@ Editorial content is read from Supabase, not bundled: the learning library throu
 
 Assessment flow: on submit the app scores the answers (`assessmentEngine.js`), saves them to the session, and opens the individual result (`app/results/session/[sessionId].tsx`); the second partner to finish also creates the `couple_results` row (`coupleAssessment.js`) and asks the backend for the couple insight. AI never runs on the device — screens call the backend through `services/insights.ts` and render with `hooks/useInsight.ts` + `components/insights/InsightCard.tsx`. Analyzers live at `app/ai/`.
 
+Onboarding (`app/assessment/[id].tsx`'s `handleOnboardingSubmit`, id `onboarding-assessment`) is a separate flow from the 16 real assessments above: it saves to `onboarding_assessments` (not `assessment_sessions`), and both its individual and couple AI insights use their own endpoints/tables (`requestOnboardingIndividualInsight`/`requestOnboardingCoupleInsight` in `services/insights.ts`, rendered on `app/results/[assessmentId].tsx` — there is no `app/results/session/[sessionId].tsx` equivalent for onboarding). The individual insight fires as soon as one partner finishes; the couple insight only fires once both partners' `onboarding_assessments` rows are `completed`.
+
 Couple-scoped screens get the signed-in user and active couple from `services/couple.ts` (`getCoupleContext`). The daily question is picked client-side by `utils/dailyQuestion.js` (same question for everyone on a calendar day, rotating through active questions by `sort_order`) — both partners must compute the same one, so keep it a pure function of the date.
 
 ## Commands

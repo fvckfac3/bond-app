@@ -12,11 +12,11 @@ STUBS_ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "stubs")
 if BACKEND_ROOT not in sys.path:
     sys.path.insert(0, BACKEND_ROOT)
 
-# `emergentintegrations` isn't on PyPI (Emergent.sh-private, baked into their
-# build image only). Append the stub after the real sys.path so a real
-# install (e.g. inside Emergent's own environment) always wins.
+# Insert the stub root ahead of site-packages so the offline `anthropic` stub
+# always wins in tests, even though the real package is installed for
+# production use — tests must stay deterministic and network-free.
 if STUBS_ROOT not in sys.path:
-    sys.path.append(STUBS_ROOT)
+    sys.path.insert(1, STUBS_ROOT)
 
 # routes/payments.py and routes/stripe_webhook.py read these at import time.
 os.environ.setdefault("SUPABASE_URL", "https://test.supabase.co")

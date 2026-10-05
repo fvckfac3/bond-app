@@ -3,7 +3,7 @@
 
 // Animated Components
 export { default as FadeInView, StaggerContainer, StaggerItem } from './animated/FadeInView';
-export { default as ScaleButton, BounceIn, PulseView, ShimmerView, SlideUpModal } from './animated/ScaleButton';
+export { default as ScaleButton, BounceIn, ShimmerView, SlideUpModal } from './animated/ScaleButton';
 export { default as SkeletonLoader } from './animated/SkeletonLoader';
 export { default as PulseView } from './animated/PulseView';
 

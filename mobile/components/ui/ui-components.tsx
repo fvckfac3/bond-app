@@ -2,7 +2,7 @@
 // Built following: animation-patterns, shadows, polish, mobile-design, ui-ux-patterns
 
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ViewStyle, TextStyle, ActivityIndicator, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ViewStyle, TextStyle, ActivityIndicator, Dimensions, DimensionValue } from 'react-native';
 import { MotiView } from 'moti';
 import { LinearGradient } from 'expo-linear-gradient';
 import { colors, spacing, borderRadius, shadows, motion, easing, typography, touchTargets } from '../../constants/theme';
@@ -302,7 +302,7 @@ export function ProgressBar({
 // ============================================================================
 
 interface SkeletonProps {
-  width?: number | string;
+  width?: DimensionValue;
   height: number;
   borderRadius?: number;
   style?: ViewStyle;
@@ -311,7 +311,7 @@ interface SkeletonProps {
 export function Skeleton({
   width = '100%',
   height,
-  borderRadius = borderRadius.sm,
+  borderRadius: radius = borderRadius.sm,
   style,
 }: SkeletonProps) {
   return (
@@ -328,7 +328,7 @@ export function Skeleton({
         {
           width,
           height,
-          borderRadius,
+          borderRadius: radius,
           backgroundColor: colors.lightGray,
         },
         style,
@@ -494,7 +494,7 @@ export function IconButton({
 
 interface GradientCardProps {
   children: React.ReactNode;
-  gradientColors?: string[];
+  gradientColors?: [string, string, ...string[]];
   style?: ViewStyle;
   delay?: number;
 }

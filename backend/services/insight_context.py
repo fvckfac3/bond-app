@@ -28,6 +28,22 @@ def _labels(items, limit=3) -> List[str]:
     return out[:limit]
 
 
+def _onboarding_answers_summary(answers: Optional[Dict[str, Any]]) -> Dict[str, Optional[str]]:
+    """The 4 routing answers as plain strings. These are fixed multiple-choice picks, not free
+    text someone wrote, so they carry no quoting risk under the safety rules."""
+
+    def text(key: str) -> Optional[str]:
+        value = (answers or {}).get(key)
+        return value.get("text") if isinstance(value, dict) else value
+
+    return {
+        "relationship_stage": text("relationship_stage"),
+        "relationship_length": text("relationship_length"),
+        "biggest_challenge": text("biggest_challenge"),
+        "relationship_goal": text("relationship_goal"),
+    }
+
+
 class InsightContext:
     """Read-only loader for one user's (and their couple's) insight inputs."""
 
@@ -80,7 +96,7 @@ class InsightContext:
 
     # ---------------------------------------------------------------- assessments
     def summarize_scores(
-        self, assessment_id: str, scores: Dict[str, Any], completed_at: Optional[str]
+        self, assessment_id: str, scores: Optional[Dict[str, Any]], completed_at: Optional[str]
     ) -> Dict[str, Any]:
         """An assessment result as the model sees it (scores are 0-100, higher = healthier)."""
         meta = self.assessment_meta(assessment_id)
@@ -321,13 +337,88 @@ class InsightContext:
                 "app_action_plan": result.get("action_plan") or [],
                 "app_warnings": (result.get("combined_scores") or {}).get("warnings") or [],
                 "top_preferences": {
-                    names[p1]: ((result.get("combined_scores") or {}).get("topPreferences") or {}).get("partner1"),
-                    names[p2]: ((result.get("combined_scores") or {}).get("topPreferences") or {}).get("partner2"),
+                    names[p1]: (
+                        (result.get("combined_scores") or {}).get("topPreferences") or {}
+                    ).get("partner1"),
+                    names[p2]: (
+                        (result.get("combined_scores") or {}).get("topPreferences") or {}
+                    ).get("partner2"),
                 },
             },
             "other_couple_results": self.couple_result_summaries(
                 result["couple_unit_id"], exclude_id=result["id"]
             )[:6],
+            "check_ins": {
+                names[p1]: trends[p1],
+                names[p2]: trends[p2],
+                "period_days": trends["period_days"],
+            },
+        }
+
+    def for_onboarding_individual(self, user_id: str, onboarding: Dict[str, Any]) -> Dict[str, Any]:
+        """Mirrors for_individual, but the 'result' is the onboarding baseline sweep, not a
+        single assessment session."""
+        couple = self.couple_for(user_id)
+        partner_id = couple["partner_id"] if couple else None
+        ctx: Dict[str, Any] = {
+            "your_baseline": self.summarize_scores(
+                "onboarding-assessment",
+                onboarding.get("baseline_scores"),
+                onboarding.get("submitted_at"),
+            ),
+            "your_stated_answers": _onboarding_answers_summary(onboarding.get("answers")),
+            "your_other_results": self.summaries_for(self.completed_sessions(user_id))[:8],
+            "your_learning": self.learning_summary(user_id),
+            "paired": bool(couple and partner_id),
+        }
+        if couple and partner_id:
+            trends = self.checkin_trends(couple["id"], [user_id, partner_id])
+            ctx.update(
+                partner_results_you_can_both_see=self.partner_visible_summaries(
+                    user_id, partner_id
+                )[:6],
+                couple_results=self.couple_result_summaries(couple["id"])[:6],
+                check_ins={
+                    "you": trends[user_id],
+                    "partner": trends[partner_id],
+                    "period_days": trends["period_days"],
+                },
+                activities=self.activity_summary(user_id, partner_id),
+            )
+        else:
+            ctx["check_ins"] = {"you": self.checkin_trends(None, [user_id])[user_id]}
+            ctx["activities"] = self.activity_summary(user_id, None)
+        return ctx
+
+    def for_onboarding_couple(
+        self,
+        couple_unit_id: str,
+        p1: str,
+        p2: str,
+        onboarding_by_partner: Dict[str, Dict[str, Any]],
+        names: Dict[str, str],
+    ) -> Dict[str, Any]:
+        """`onboarding_by_partner` maps partner id -> their completed onboarding_assessments row."""
+        trends = self.checkin_trends(couple_unit_id, [p1, p2])
+        return {
+            "partners": [names[p1], names[p2]],
+            "baselines": {
+                names[p1]: self.summarize_scores(
+                    "onboarding-assessment",
+                    onboarding_by_partner[p1].get("baseline_scores"),
+                    onboarding_by_partner[p1].get("submitted_at"),
+                ),
+                names[p2]: self.summarize_scores(
+                    "onboarding-assessment",
+                    onboarding_by_partner[p2].get("baseline_scores"),
+                    onboarding_by_partner[p2].get("submitted_at"),
+                ),
+            },
+            "stated_answers": {
+                names[p1]: _onboarding_answers_summary(onboarding_by_partner[p1].get("answers")),
+                names[p2]: _onboarding_answers_summary(onboarding_by_partner[p2].get("answers")),
+            },
+            "other_couple_results": self.couple_result_summaries(couple_unit_id)[:6],
             "check_ins": {
                 names[p1]: trends[p1],
                 names[p2]: trends[p2],

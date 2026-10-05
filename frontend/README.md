@@ -1,3 +1,7 @@
+> **Unmaintained scaffold.** This is a vestigial Create React App shell with no Bond-specific
+> screens. `mobile/` is the real product — don't build features here unless a human has
+> explicitly decided to revive a web client. See the repo-root `CLAUDE.md`.
+
 # Getting Started with Create React App
 
 This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).

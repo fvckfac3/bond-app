@@ -272,6 +272,13 @@ const styles = StyleSheet.create({
     color: colors.primary,
     marginBottom: spacing.sm,
   },
+  onboardingText: {
+    color: colors.gray,
+    marginBottom: spacing.md,
+  },
+  onboardingButton: {
+    alignSelf: 'flex-start',
+  },
   logoutContainer: {
     padding: spacing.lg,
   },

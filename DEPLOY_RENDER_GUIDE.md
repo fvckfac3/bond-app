@@ -3,8 +3,9 @@
 ## Prerequisites
 - GitHub account
 - Backend code pushed to a GitHub repository
-- Emergent LLM API key (already in your code)
-- Supabase URL and keys (already in your code)
+- Anthropic API key (for AI insights/analyzers)
+- Supabase URL and service role key
+- Stripe secret key and webhook signing secret
 
 ---
 
@@ -32,13 +33,21 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.0
-      - key: EMERGENT_LLM_KEY
-        sync: false
       - key: SUPABASE_URL
         sync: false
-      - key: SUPABASE_ANON_KEY
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: STRIPE_API_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: CORS_ORIGINS
         sync: false
 ```
+
+This matches the `render.yaml` already checked in at the repo root — Render's Blueprint deploy (New + → Blueprint) picks that up automatically instead of the manual steps below.
 
 ---
 
@@ -80,17 +89,19 @@ Fill in these details:
 Scroll down to **"Environment Variables"** section and add:
 
 ```bash
-EMERGENT_LLM_KEY=sk-emergent-your-key-here
 SUPABASE_URL=<your-supabase-url>
-SUPABASE_ANON_KEY=<your-supabase-anon-key>
 SUPABASE_SERVICE_ROLE_KEY=<your-supabase-service-key>
+ANTHROPIC_API_KEY=<your-anthropic-api-key>
+STRIPE_API_KEY=<your-stripe-secret-key>
+STRIPE_WEBHOOK_SECRET=<your-stripe-webhook-signing-secret>
+CORS_ORIGINS=<comma-separated-browser-origins>
 ```
 
 **Where to find Supabase keys:**
 - Go to https://supabase.com/dashboard
 - Select your project
 - Go to **Settings** → **API**
-- Copy `URL`, `anon public` key, and `service_role` key
+- Copy `URL` and the `service_role` key (the backend uses the service role key, never the anon key)
 
 ### 3.4 Deploy!
 

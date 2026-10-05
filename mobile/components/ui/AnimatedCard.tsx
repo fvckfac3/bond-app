@@ -6,7 +6,7 @@ import { colors, spacing, shadows } from '../../constants/theme';
 
 interface GradientCardProps {
   children: React.ReactNode;
-  gradientColors?: string[];
+  gradientColors?: [string, string, ...string[]];
   style?: StyleProp<ViewStyle>;
   delay?: number;
   onPress?: () => void;

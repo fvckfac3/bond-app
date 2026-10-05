@@ -19,19 +19,27 @@ import hmac
 import json
 import time
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
 import pytest
 import stripe as stripe_lib
-from emergentintegrations.payments.stripe.checkout import (
-    CheckoutSessionResponse,
-    CheckoutStatusResponse,
-)
 from fake_db import InMemoryDB
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from routes import deps
 from routes import payments as payments_module
 from routes import stripe_webhook as webhook_module
+from services.stripe_checkout import (
+    CheckoutSessionResponse,
+    CheckoutStatusResponse,
+)
+
+
+def auth_header(user_id: str) -> dict:
+    """A bearer token that the fake auth backend below resolves straight to `user_id`."""
+    return {"Authorization": f"Bearer token-{user_id}"}
+
 
 USER, PARTNER, OTHER = "user-free", "user-partner", "user-other"
 COUPLE = "couple-1"
@@ -141,7 +149,15 @@ def db(monkeypatch):
 
 
 @pytest.fixture
-def client(db, stripe_mock):
+def client(db, stripe_mock, monkeypatch):
+    def get_user(token: str):
+        if not token.startswith("token-"):
+            raise Exception("bad jwt")
+        return SimpleNamespace(user=SimpleNamespace(id=token[len("token-") :]))
+
+    monkeypatch.setattr(
+        deps, "get_supabase", lambda: SimpleNamespace(auth=SimpleNamespace(get_user=get_user))
+    )
     app = FastAPI()
     app.include_router(payments_module.router)
     app.include_router(webhook_module.router)
@@ -164,14 +180,14 @@ def start_checkout(client, user_id=USER):
     resp = client.post(
         "/api/subscription/checkout",
         json={"package_id": "premium_monthly", "origin_url": ORIGIN},
-        headers={"X-User-ID": user_id},
+        headers=auth_header(user_id),
     )
     assert resp.status_code == 200, resp.text
     return resp.json()
 
 
 def subscription_status(client, user_id=USER):
-    resp = client.get(f"/api/subscription/user/{user_id}")
+    resp = client.get(f"/api/subscription/user/{user_id}", headers=auth_header(user_id))
     assert resp.status_code == 200, resp.text
     return resp.json()
 

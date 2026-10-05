@@ -130,6 +130,81 @@ def clean_couple(raw: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+# --------------------------------------------------------------------------- onboarding
+# Same output shape and cleaning as individual/couple insights (clean_individual/clean_couple) —
+# only the framing differs: this is a first, broad baseline across many areas at once, not one
+# deep assessment.
+def onboarding_individual_prompt(context: Dict[str, Any]) -> Tuple[str, str, List[str]]:
+    system = SAFETY_RULES + (
+        "\n\nThis is a PRIVATE insight for one person about their onboarding baseline — their very "
+        "first look at their relationship in Bond, covering many areas at once rather than one deep "
+        "assessment. Speak to them directly as 'you'. Frame it as a starting point they will build on, "
+        "not a verdict. If partner data is included, use it only to explain how the two of you fit "
+        "together — never to critique the partner."
+    )
+    prompt = f"""Write a welcoming baseline insight from the onboarding answers and baseline scores below, covering where this person's relationship stands across the areas measured, connected to anything else we already know about them.
+
+{SCORE_NOTE}
+
+DATA:
+{_data(context)}
+
+Return JSON with exactly these keys:
+{{
+  "headline": "one warm sentence (max 14 words) capturing their overall starting point",
+  "summary": "2 short paragraphs: an honest, encouraging read of where they stand across the areas measured, in plain words tied to specific scores",
+  "strengths": ["2-3 specific strengths shown by the baseline scores"],
+  "growth_edges": ["2-3 gentle, specific areas to grow, framed as patterns worth watching, not problems"],
+  "connections": "1 short paragraph linking this baseline to their stated focus area or goal, or to anything else we know — or null if there is nothing meaningful to connect",
+  "try_this_week": ["2-3 small, concrete things to try this week"],
+  "reflection_question": "one open question to reflect on",
+  "safety_note": null
+}}"""
+    return system, prompt, ["headline", "summary", "strengths", "growth_edges", "try_this_week"]
+
+
+def onboarding_couple_prompt(context: Dict[str, Any]) -> Tuple[str, str, List[str]]:
+    system = SAFETY_RULES + (
+        "\n\nThis insight is shared: BOTH partners will read the same text. It is their onboarding "
+        "baseline — a first look across many areas of their relationship together, not one deep "
+        "assessment. Treat them with complete symmetry — equal warmth, equal attention, no partner "
+        "framed as the one with the problem. Differences are described as differences in style or "
+        "need, not as right and wrong."
+    )
+    names = " and ".join(context.get("partners", []))
+    prompt = f"""Write a welcoming baseline couple insight for {names} from their onboarding answers and baseline scores below, describing where they stand together across the areas measured and how their two starting points compare.
+
+{SCORE_NOTE}
+
+DATA:
+{_data(context)}
+
+Return JSON with exactly these keys:
+{{
+  "headline": "one warm sentence (max 14 words) about this couple's starting point",
+  "narrative": "2-3 short paragraphs describing how their baselines fit together across the areas measured, using their names evenly",
+  "shared_strengths": ["2-3 specific things that already work well between them"],
+  "growth_opportunities": ["2-3 areas to grow together, framed as a shared project"],
+  "how_you_differ": "1 short paragraph on the biggest difference between their two baselines, framed as two valid styles and how to bridge them — or null if they are closely aligned",
+  "conversation_starters": ["2-3 gentle opening lines either partner could say to start a conversation"],
+  "try_together": ["2-3 small, concrete things to try together this week"],
+  "strength_affirmation": "one sentence affirming a real strength of this couple",
+  "safety_note": null
+}}"""
+    return (
+        system,
+        prompt,
+        [
+            "headline",
+            "narrative",
+            "shared_strengths",
+            "growth_opportunities",
+            "try_together",
+            "strength_affirmation",
+        ],
+    )
+
+
 # --------------------------------------------------------------------------- relationship summary
 def summary_prompt(context: Dict[str, Any], period_label: str) -> Tuple[str, str, List[str]]:
     system = SAFETY_RULES + (

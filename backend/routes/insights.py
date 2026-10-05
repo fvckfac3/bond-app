@@ -19,7 +19,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
 
 from routes import deps
-from services.ai_usage import can_generate, month_start
+from services.ai_usage import ai_allowance, limit_message, month_start
 from services.insight_context import InsightContext
 from services.insight_prompts import (
     clean_couple,
@@ -27,6 +27,8 @@ from services.insight_prompts import (
     clean_summary,
     couple_prompt,
     individual_prompt,
+    onboarding_couple_prompt,
+    onboarding_individual_prompt,
     summary_prompt,
 )
 from services.llm import LLMUnavailable, generate_json, llm_configured
@@ -68,11 +70,9 @@ def _ready(content: Dict[str, Any]) -> Dict[str, Any]:
 def _can_start(db, user_id: str) -> None:
     if not llm_configured():
         raise HTTPException(status_code=503, detail="AI insights are not available right now.")
-    if not can_generate(db, user_id):
-        raise HTTPException(
-            status_code=402,
-            detail="You've used this month's free AI insights. Premium includes unlimited insights.",
-        )
+    allowance = ai_allowance(db, user_id)
+    if allowance["remaining"] == 0:
+        raise HTTPException(status_code=402, detail=limit_message(allowance["tier"]))
 
 
 def _generation_failed(error: Exception) -> HTTPException:
@@ -265,6 +265,205 @@ async def couple_insight(couple_result_id: str, user_id: str = Depends(deps.curr
             "assessmentId": result["assessment_id"],
             "coupleResultId": couple_result_id,
         },
+    )
+    return _ready(content)
+
+
+# --------------------------------------------------------------------------- onboarding individual
+@router.post("/onboarding-individual/{onboarding_id}")
+async def onboarding_individual_insight(
+    onboarding_id: str, user_id: str = Depends(deps.current_user_id)
+):
+    db = deps.get_supabase()
+    if not deps.valid_uuid(onboarding_id):
+        raise HTTPException(status_code=404, detail="Onboarding assessment not found")
+    rows = (
+        db.table("onboarding_assessments")
+        .select("id, user_id, answers, baseline_scores, submitted_at, completed")
+        .eq("id", onboarding_id)
+        .execute()
+        .data
+        or []
+    )
+    if not rows or rows[0]["user_id"] != user_id:
+        raise HTTPException(status_code=404, detail="Onboarding assessment not found")
+    onboarding = rows[0]
+    if not onboarding.get("completed"):
+        raise HTTPException(status_code=409, detail="Finish onboarding first.")
+
+    existing = (
+        db.table("onboarding_individual_insights")
+        .select("*")
+        .eq("onboarding_assessment_id", onboarding_id)
+        .execute()
+        .data
+        or []
+    )
+    row = existing[0] if existing else None
+    if row and row["status"] == "ready":
+        return _ready(row["content"])
+    if row and row["status"] == "pending" and not _stale(row.get("updated_at")):
+        return _pending()
+
+    _can_start(db, user_id)
+    now = _now().isoformat()
+    if row:
+        claimed = (
+            db.table("onboarding_individual_insights")
+            .update({"status": "pending", "updated_at": now})
+            .eq("id", row["id"])
+            .eq("status", row["status"])
+            .execute()
+            .data
+        )
+        if not claimed:
+            return _pending()
+    else:
+        try:
+            db.table("onboarding_individual_insights").insert(
+                {
+                    "user_id": user_id,
+                    "onboarding_assessment_id": onboarding_id,
+                    "status": "pending",
+                    "updated_at": now,
+                }
+            ).execute()
+        except Exception as e:
+            if _is_duplicate(e):
+                return _pending()
+            raise
+
+    try:
+        context = InsightContext(db).for_onboarding_individual(user_id, onboarding)
+        system, prompt, required = onboarding_individual_prompt(context)
+        raw = await generate_json(
+            system=system,
+            prompt=prompt,
+            session_id=f"onboarding-individual-{onboarding_id}",
+            required=required,
+        )
+        content = apply_safety(clean_individual(raw))
+    except Exception as e:
+        db.table("onboarding_individual_insights").update(
+            {"status": "failed", "updated_at": _now().isoformat()}
+        ).eq("onboarding_assessment_id", onboarding_id).execute()
+        raise _generation_failed(e)
+
+    db.table("onboarding_individual_insights").update(
+        {"status": "ready", "content": content, "updated_at": _now().isoformat()}
+    ).eq("onboarding_assessment_id", onboarding_id).execute()
+    return _ready(content)
+
+
+# --------------------------------------------------------------------------- onboarding couple
+@router.post("/onboarding-couple/{couple_unit_id}")
+async def onboarding_couple_insight(
+    couple_unit_id: str, user_id: str = Depends(deps.current_user_id)
+):
+    db = deps.get_supabase()
+    if not deps.valid_uuid(couple_unit_id):
+        raise HTTPException(status_code=404, detail="Couple not found")
+    active = (
+        db.table("couple_units")
+        .select("id, user1_id, user2_id")
+        .eq("id", couple_unit_id)
+        .eq("status", "active")
+        .or_(f"user1_id.eq.{user_id},user2_id.eq.{user_id}")
+        .execute()
+        .data
+    )
+    if not active:
+        raise HTTPException(status_code=403, detail="Not a member of this couple")
+    p1, p2 = active[0]["user1_id"], active[0]["user2_id"]
+
+    existing = (
+        db.table("onboarding_couple_insights")
+        .select("*")
+        .eq("couple_unit_id", couple_unit_id)
+        .execute()
+        .data
+        or []
+    )
+    row = existing[0] if existing else None
+    if row and row.get("ai_status") == "ready" and row.get("ai_insight"):
+        return _ready(row["ai_insight"])
+    if row and row.get("ai_status") == "pending" and not _stale(row.get("ai_updated_at")):
+        return _pending()
+
+    _can_start(db, user_id)
+
+    onboarding_rows = (
+        db.table("onboarding_assessments")
+        .select("id, user_id, answers, baseline_scores, submitted_at, completed")
+        .in_("user_id", [p1, p2])
+        .eq("completed", True)
+        .execute()
+        .data
+        or []
+    )
+    by_partner = {r["user_id"]: r for r in onboarding_rows}
+    if p1 not in by_partner or p2 not in by_partner:
+        raise HTTPException(status_code=409, detail="Both partners must finish onboarding first.")
+
+    now_iso = _now().isoformat()
+    if row:
+        cutoff = (_now() - PENDING_TIMEOUT).strftime("%Y-%m-%dT%H:%M:%SZ")
+        claimed = (
+            db.table("onboarding_couple_insights")
+            .update({"ai_status": "pending", "ai_updated_at": now_iso})
+            .eq("id", row["id"])
+            .or_(
+                f"ai_status.is.null,ai_status.eq.failed,and(ai_status.eq.pending,ai_updated_at.lt.{cutoff})"
+            )
+            .execute()
+            .data
+        )
+        if not claimed:
+            return _pending()
+    else:
+        try:
+            db.table("onboarding_couple_insights").insert(
+                {
+                    "couple_unit_id": couple_unit_id,
+                    "partner1_id": p1,
+                    "partner2_id": p2,
+                    "ai_status": "pending",
+                    "ai_updated_at": now_iso,
+                }
+            ).execute()
+        except Exception as e:
+            if _is_duplicate(e):
+                return _pending()
+            raise
+
+    try:
+        loader = InsightContext(db)
+        names = loader.first_names(p1, p2)
+        context = loader.for_onboarding_couple(couple_unit_id, p1, p2, by_partner, names)
+        system, prompt, required = onboarding_couple_prompt(context)
+        raw = await generate_json(
+            system=system,
+            prompt=prompt,
+            session_id=f"onboarding-couple-{couple_unit_id}",
+            required=required,
+        )
+        content = apply_safety(clean_couple(raw))
+    except Exception as e:
+        db.table("onboarding_couple_insights").update(
+            {"ai_status": "failed", "ai_updated_at": _now().isoformat()}
+        ).eq("couple_unit_id", couple_unit_id).execute()
+        raise _generation_failed(e)
+
+    db.table("onboarding_couple_insights").update(
+        {"ai_status": "ready", "ai_insight": content, "ai_updated_at": _now().isoformat()}
+    ).eq("couple_unit_id", couple_unit_id).execute()
+
+    await send_push(
+        db,
+        [p1, p2],
+        "Your onboarding insight is ready",
+        "See what your starting point says about the two of you.",
+        {"type": "onboarding_couple_insight", "coupleUnitId": couple_unit_id},
     )
     return _ready(content)
 

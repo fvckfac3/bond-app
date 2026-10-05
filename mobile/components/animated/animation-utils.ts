@@ -3,7 +3,7 @@
 // Purposeful motion only - no decorative bounce/elastic easing
 
 import { Easing } from 'react-native-reanimated';
-import { withSpring, withTiming, withRepeat, withSequence } from 'react-native-reanimated';
+import { withSpring, withTiming, withRepeat, withSequence, withDelay } from 'react-native-reanimated';
 
 // Timing constants - purpose-driven durations
 export const motion = {
@@ -58,7 +58,7 @@ export function withTimingTransition(timing = motion.default, easingFn = easing.
 export function slideUpIn(delay = 0) {
   'worklet';
   return {
-    opacity: withTiming(1, { duration: motion.complex, easing: easing.easeOut }),
+    opacity: withDelay(delay, withTiming(1, { duration: motion.complex, easing: easing.easeOut })),
     translateY: withSpring(0, springConfig.default),
   };
 }
@@ -67,7 +67,7 @@ export function slideUpIn(delay = 0) {
 export function fadeIn(delay = 0) {
   'worklet';
   return {
-    opacity: withTiming(1, { duration: motion.default, delay, easing: easing.easeOut }),
+    opacity: withDelay(delay, withTiming(1, { duration: motion.default, easing: easing.easeOut })),
   };
 }
 
@@ -75,7 +75,7 @@ export function fadeIn(delay = 0) {
 export function scaleIn(delay = 0) {
   'worklet';
   return {
-    opacity: withTiming(1, { duration: motion.default, delay }),
+    opacity: withDelay(delay, withTiming(1, { duration: motion.default })),
     scale: withSpring(1, springConfig.snappy),
   };
 }
