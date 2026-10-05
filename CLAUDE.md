@@ -4,12 +4,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project structure
 
-Bond is a relationship-wellness app for couples. This repo holds four independent components sharing one repo — there is no root package.json/workspace linking them:
+Bond is a relationship-wellness app for couples. This repo holds five independent components sharing one repo — there is no root package.json/workspace linking them:
 
 - `mobile/` — Expo/React Native app. **This is the product.** 100% of real user-facing screens live here. See `mobile/CLAUDE.md` for mobile-specific conventions.
 - `backend/` — FastAPI thin services layer (AI insights, 4 text analyzers, Stripe billing). Not a general CRUD API — mobile talks to Supabase directly for everything else. There is no MongoDB anywhere; the old Mongo-backed `routes/features.py` was removed.
 - `frontend/` — Create React App + shadcn scaffold. **Vestigial — has no Bond-specific screens.** Do not build features against it unless a human has explicitly decided to revive a web client.
 - `supabase/` — Postgres schema, migrations, seeds. `supabase/bond_schema.sql` (not the `migrations/` folder) is the canonical source of truth for current tables — the migrations folder is incomplete (missing 001 and 005). `supabase/bond_seed.sql` seeds only the `assessments` registry; content seeds are migrations 012, 013 and 017.
+- `clinician-web/` — Next.js 14 clinician/institutional dashboard (the human-approved web client, 2026-10). Data layer is migration 021 (`clinics`, `clinicians`, `clinic_couples`, `clinic_invitations`, `private_reflections`, `shared_reflections`, `audit_logs`). Clinic access needs both partners' consent; clinicians read only `shared_with_clinician` reflections and counts via SECURITY DEFINER functions, never other tables directly; `private_reflections` is author-only; `audit_logs` is append-only and written only by the service role (`clinician-web/lib/audit.ts`). See `clinician-web/README.md`; SQL tests in `supabase/tests/`.
 
 Full product/architecture requirements live in `PRDs'@/` — read `PRDs'@/00_Master_Index-1.md` first; it states precedence rules and binding instructions for AI coding agents. `PRDs'@/11_Audit_Findings...md` is referenced throughout as the essential source for specific known bugs but may not exist yet in this checkout — check for it before assuming the list below is complete.
 
