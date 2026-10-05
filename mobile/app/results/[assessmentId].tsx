@@ -10,7 +10,13 @@ import { fetchSeriesTitles } from '../../services/learning';
 import { useSubscription } from '../../hooks/useSubscription';
 import PaywallModal from '../../components/subscription/PaywallModal';
 import InsightCard from '../../components/insights/InsightCard';
-import { requestCoupleInsight, CoupleInsight } from '../../services/insights';
+import {
+  requestCoupleInsight,
+  requestOnboardingIndividualInsight,
+  requestOnboardingCoupleInsight,
+  CoupleInsight,
+  IndividualInsight,
+} from '../../services/insights';
 import { useInsight } from '../../hooks/useInsight';
 
 const { width } = Dimensions.get('window');
@@ -28,6 +34,29 @@ export default function ResultsScreen() {
   const [showPaywall, setShowPaywall] = useState(false);
   const { packages } = useSubscription(userId);
   const onboardingResult = assessmentId === 'onboarding-assessment' ? coupleResult : null;
+
+  // Onboarding's own private + shared baseline insights (separate from the couple-results
+  // insight above, which only applies to the other 16 scored assessments).
+  const [onboardingIndividualStored, setOnboardingIndividualStored] = useState<IndividualInsight | null>(null);
+  const [onboardingCoupleStored, setOnboardingCoupleStored] = useState<CoupleInsight | null>(null);
+  const [onboardingId, setOnboardingId] = useState<string | null>(null);
+  const [onboardingCoupleUnitId, setOnboardingCoupleUnitId] = useState<string | null>(null);
+  const [onboardingPartnerDone, setOnboardingPartnerDone] = useState(false);
+
+  const onboardingIndividualRequest = useMemo(
+    () => (onboardingId ? () => requestOnboardingIndividualInsight(onboardingId) : null),
+    [onboardingId]
+  );
+  const onboardingIndividualInsight = useInsight<IndividualInsight>(onboardingIndividualRequest, onboardingIndividualStored);
+
+  const onboardingCoupleRequest = useMemo(
+    () =>
+      onboardingCoupleUnitId && onboardingPartnerDone
+        ? () => requestOnboardingCoupleInsight(onboardingCoupleUnitId)
+        : null,
+    [onboardingCoupleUnitId, onboardingPartnerDone]
+  );
+  const onboardingCoupleInsight = useInsight<CoupleInsight>(onboardingCoupleRequest, onboardingCoupleStored);
 
   useEffect(() => {
     loadResults();
@@ -90,6 +119,40 @@ export default function ResultsScreen() {
         });
         // Titles are a nicety: fall back to the series key if the lookup fails.
         fetchSeriesTitles(onboardingData?.recommended_series || []).then(setSeriesTitles).catch(() => {});
+
+        setOnboardingId(onboardingData?.id ?? null);
+        setOnboardingCoupleUnitId(onboardingData?.couple_unit_id ?? null);
+
+        const { data: individualInsightRow } = await supabase
+          .from('onboarding_individual_insights')
+          .select('status, content')
+          .eq('onboarding_assessment_id', onboardingData.id)
+          .maybeSingle();
+        if (individualInsightRow?.status === 'ready') setOnboardingIndividualStored(individualInsightRow.content);
+
+        if (onboardingData?.couple_unit_id) {
+          const [{ data: partnerRows }, { data: coupleInsightRow }] = await Promise.all([
+            // Readable only once the current user has also completed onboarding (paired gate in RLS).
+            supabase
+              .from('onboarding_assessments')
+              .select('id')
+              .eq('couple_unit_id', onboardingData.couple_unit_id)
+              .eq('assessment_id', assessmentId)
+              .eq('completed', true)
+              .neq('user_id', user?.id)
+              .limit(1),
+            supabase
+              .from('onboarding_couple_insights')
+              .select('ai_status, ai_insight')
+              .eq('couple_unit_id', onboardingData.couple_unit_id)
+              .maybeSingle(),
+          ]);
+          setOnboardingPartnerDone(Boolean(partnerRows?.length));
+          if (coupleInsightRow?.ai_status === 'ready' && coupleInsightRow.ai_insight) {
+            setOnboardingCoupleStored(coupleInsightRow.ai_insight);
+          }
+        }
+
         setLoading(false);
         return;
       }
@@ -359,6 +422,37 @@ export default function ResultsScreen() {
             onRetry={insight.start}
             onUpgrade={() => setShowPaywall(true)}
           />
+        ) : null}
+
+        {onboardingResult ? (
+          <InsightCard
+            kind="individual"
+            title="Your baseline insight"
+            state={onboardingIndividualInsight}
+            onRetry={onboardingIndividualInsight.start}
+            onUpgrade={() => setShowPaywall(true)}
+          />
+        ) : null}
+
+        {onboardingResult && onboardingCoupleUnitId ? (
+          onboardingPartnerDone ? (
+            <InsightCard
+              kind="couple"
+              title="Your couple baseline insight"
+              state={onboardingCoupleInsight}
+              onRetry={onboardingCoupleInsight.start}
+              onUpgrade={() => setShowPaywall(true)}
+            />
+          ) : (
+            <Card style={styles.card}>
+              <Card.Content>
+                <Text style={styles.cardTitle}>Together</Text>
+                <Text style={styles.narrative}>
+                  Once your partner finishes onboarding too, you’ll both get a shared baseline insight.
+                </Text>
+              </Card.Content>
+            </Card>
+          )
         ) : null}
 
         {onboardingResult ? (

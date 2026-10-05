@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 
 
 def load_server(monkeypatch, cors_origins):
-    monkeypatch.setenv("EMERGENT_LLM_KEY", "test-key")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
     if cors_origins is None:
         monkeypatch.delenv("CORS_ORIGINS", raising=False)
     else:

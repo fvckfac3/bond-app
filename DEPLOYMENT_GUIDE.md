@@ -3,6 +3,7 @@
 ## 📱 **Architecture Overview**
 
 BOND consists of 3 main components:
+
 1. **Mobile App** (React Native/Expo) - iOS + Android
 2. **Backend API** (FastAPI) - AI insights generation only
 3. **Database** (Supabase) - PostgreSQL with real-time features
@@ -16,11 +17,13 @@ BOND consists of 3 main components:
 #### **Platform: iOS (App Store)**
 
 **Requirements:**
+
 - Apple Developer Account ($99/year)
 - macOS computer with Xcode
 - App Store Connect account
 
 **Build Process:**
+
 ```bash
 # Using EAS Build (Expo Application Services)
 eas build --platform ios --profile production
@@ -31,14 +34,16 @@ cd ios && xcodebuild archive...
 ```
 
 **Steps:**
-1. Configure `app.json` with bundle ID, version
+
+1. Configure `file app.json` with bundle ID, version
 2. Set up App Store Connect listing
 3. Build production IPA
 4. Upload via Xcode or Transporter
-5. Submit for App Review (~1-3 days)
+5. Submit for App Review (\~1-3 days)
 6. Release to App Store
 
 **Costs:**
+
 - Apple Developer: $99/year
 - EAS Build: Free tier (limited builds) or $29/month
 
@@ -47,10 +52,12 @@ cd ios && xcodebuild archive...
 #### **Platform: Android (Google Play)**
 
 **Requirements:**
+
 - Google Play Developer Account ($25 one-time)
 - Signing keystore
 
 **Build Process:**
+
 ```bash
 # Using EAS Build
 eas build --platform android --profile production
@@ -59,15 +66,17 @@ eas build --platform android --profile production
 ```
 
 **Steps:**
+
 1. Create signing keystore
-2. Configure `app.json` with package name
+2. Configure `file app.json` with package name
 3. Build production AAB/APK
 4. Create Play Store listing
 5. Upload AAB to Play Console
-6. Submit for review (~few hours to 1 day)
+6. Submit for review (\~few hours to 1 day)
 7. Release to Play Store
 
 **Costs:**
+
 - Google Play: $25 one-time
 - EAS Build: Free tier or $29/month
 
@@ -80,6 +89,7 @@ eas build --platform android --profile production
 **Deployment Options:**
 
 #### **Option A: Vercel (Recommended - Easiest)**
+
 ```bash
 # Install Vercel CLI
 npm i -g vercel
@@ -93,17 +103,20 @@ EMERGENT_LLM_KEY=sk-emergent-...
 ```
 
 **Pros:**
+
 - ✅ Free tier available
 - ✅ Auto-scaling
 - ✅ Easy deployment
 - ✅ Built-in SSL
 
 **Cons:**
+
 - ❌ Serverless (cold starts)
 
 ---
 
 #### **Option B: Railway.app**
+
 ```bash
 # Connect GitHub repo
 # Railway auto-deploys on push
@@ -113,12 +126,14 @@ railway up
 ```
 
 **Pros:**
+
 - ✅ $5/month credit free
 - ✅ Always-on server
 - ✅ Easy environment variables
 - ✅ Auto SSL
 
 **Cons:**
+
 - ❌ Costs after free tier
 
 **Cost:** $5-10/month
@@ -126,6 +141,7 @@ railway up
 ---
 
 #### **Option C: DigitalOcean App Platform**
+
 ```bash
 # Deploy via GitHub or Docker
 
@@ -135,6 +151,7 @@ docker push ...
 ```
 
 **Pros:**
+
 - ✅ $5/month starter
 - ✅ Managed platform
 - ✅ Scalable
@@ -146,6 +163,7 @@ docker push ...
 #### **Option D: AWS/GCP/Azure (Production Scale)**
 
 **For serious production:**
+
 - AWS Elastic Beanstalk
 - Google Cloud Run
 - Azure App Service
@@ -159,6 +177,7 @@ docker push ...
 **Current: Supabase** ✅ Already Cloud-Hosted!
 
 **What you already have:**
+
 - PostgreSQL database (hosted)
 - Real-time subscriptions
 - Row Level Security
@@ -166,13 +185,16 @@ docker push ...
 - Storage
 
 **Supabase Pricing:**
-- **Free Tier:** 
+
+- **Free Tier:**
+
   - 500MB database
   - 2GB bandwidth
   - 50,000 monthly active users
   - Perfect for MVP/testing
 
 - **Pro ($25/month):**
+
   - 8GB database
   - 50GB bandwidth
   - 100,000 MAU
@@ -180,11 +202,13 @@ docker push ...
   - Better support
 
 - **Team ($599/month):**
+
   - Production-ready
   - 200GB+ database
   - Dedicated resources
 
 **Migration if needed:**
+
 - Supabase is open-source
 - Can self-host if you outgrow it
 - Export SQL anytime
@@ -193,7 +217,7 @@ docker push ...
 
 ## 📦 **Complete Deployment Architecture**
 
-```
+```markdown
 ┌─────────────────────────────────────────┐
 │         Mobile App (Users)              │
 │    iOS App Store + Google Play          │
@@ -211,7 +235,7 @@ docker push ...
     │ • Realtime      │  │ • Emergent Key   │
     │ • Storage       │  │                  │
     └─────────────────┘  └──────────────────┘
-         Hosted               Deploy to:
+         Hosted               Deploy to:111
       (Already!)          Railway/Vercel/DO
 ```
 
@@ -222,6 +246,7 @@ docker push ...
 ### **Phase 1: Initial Deployment (MVP)**
 
 **Week 1: Mobile App**
+
 1. ✅ Configure app signing (iOS + Android)
 2. ✅ Update app.json with production settings
 3. ✅ Build production versions via EAS
@@ -229,6 +254,7 @@ docker push ...
 5. ✅ Submit for review
 
 **Week 2: Backend**
+
 1. ✅ Choose hosting (Railway recommended)
 2. ✅ Set environment variables
 3. ✅ Deploy FastAPI server
@@ -236,6 +262,7 @@ docker push ...
 5. ✅ Test end-to-end
 
 **Week 3: Testing & Launch**
+
 1. ✅ Beta testing (TestFlight for iOS, Internal Testing for Android)
 2. ✅ Fix bugs
 3. ✅ Submit final versions
@@ -284,44 +311,45 @@ jobs:
 ### **MVP Launch (First Year)**
 
 | Component | Service | Cost |
-|-----------|---------|------|
+| --- | --- | --- |
 | iOS App | Apple Developer | $99/year |
 | Android App | Google Play | $25 one-time |
 | App Building | EAS Build Free Tier | $0 (or $29/mo) |
 | Backend API | Railway | $5-10/month |
 | Database | Supabase Free | $0 |
 | AI Insights | Emergent LLM Key | Your existing credits |
-| **Total Year 1** | | **~$200-500** |
+| **Total Year 1** |  | **\~$200-500** |
 
 ### **Growth Phase (1,000+ users)**
 
 | Component | Service | Cost |
-|-----------|---------|------|
+| --- | --- | --- |
 | iOS + Android | Developer Accounts | $99/year |
 | App Building | EAS Build Pro | $29/month |
 | Backend API | Railway/DO | $20-50/month |
 | Database | Supabase Pro | $25/month |
 | AI Insights | OpenAI API (own key) | $50-200/month |
 | Push Notifications | Expo Push | Included |
-| **Total/Month** | | **~$150-350/month** |
+| **Total/Month** |  | **\~$150-350/month** |
 
 ### **Scale (10,000+ users)**
 
 | Component | Service | Cost |
-|-----------|---------|------|
+| --- | --- | --- |
 | Mobile Apps | Developer Accounts | $99/year |
 | Backend | AWS/GCP (auto-scale) | $200-500/month |
 | Database | Supabase Team | $599/month |
 | AI | OpenAI API | $500-2000/month |
 | CDN | CloudFlare | $20/month |
 | Monitoring | Sentry | $26/month |
-| **Total/Month** | | **~$1,400-3,200/month** |
+| **Total/Month** |  | **\~$1,400-3,200/month** |
 
 ---
 
 ## 🔒 **Environment Variables Setup**
 
 ### **Mobile App (.env)**
+
 ```bash
 EXPO_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
 EXPO_PUBLIC_SUPABASE_ANON_KEY=eyJ...
@@ -329,12 +357,14 @@ EXPO_PUBLIC_BACKEND_URL=https://bond-api.railway.app
 ```
 
 ### **Backend API**
+
 ```bash
 EMERGENT_LLM_KEY=sk-emergent-...
 CORS_ORIGINS=https://your-domain.com,exp://
 ```
 
 ### **App Stores**
+
 ```bash
 # iOS
 APPLE_ID=your-apple-id
@@ -350,38 +380,65 @@ ANDROID_KEY_ALIAS=bond-release
 ## 📊 **Deployment Checklist**
 
 ### **Pre-Launch**
+
 - [ ] App Store listings created
+
 - [ ] Privacy policy written
+
 - [ ] Terms of service written
+
 - [ ] App icons designed (all sizes)
+
 - [ ] Screenshots prepared (all device sizes)
+
 - [ ] Backend deployed and tested
+
 - [ ] Database migrations run
+
 - [ ] Environment variables set
+
 - [ ] Push notifications configured
+
 - [ ] Analytics set up (optional)
+
 - [ ] Error tracking set up (Sentry)
 
 ### **iOS Specific**
+
 - [ ] Bundle ID registered
+
 - [ ] App Store Connect configured
+
 - [ ] Provisioning profiles created
+
 - [ ] Push notification certificates
+
 - [ ] TestFlight beta testing
 
 ### **Android Specific**
+
 - [ ] Package name registered
+
 - [ ] Signing keystore created and backed up
+
 - [ ] Play Store listing complete
+
 - [ ] Google Play Services configured
+
 - [ ] Internal testing track
 
 ### **Backend**
+
 - [ ] Production database connected
+
 - [ ] HTTPS/SSL enabled
+
 - [ ] CORS configured correctly
+
 - [ ] Rate limiting enabled
+
 - [ ] Logging/monitoring set up
+
 - [ ] Backup strategy in place
 
 ---
@@ -391,6 +448,7 @@ ANDROID_KEY_ALIAS=bond-release
 ### **Mobile App Updates**
 
 **Over-The-Air (OTA) Updates** - Instant!
+
 ```bash
 # Minor JS/React changes (no native code)
 eas update --branch production
@@ -399,6 +457,7 @@ eas update --branch production
 ```
 
 **Full App Store Updates** - For native changes
+
 ```bash
 # Major updates, new features, native code changes
 eas build --platform all --profile production
@@ -406,6 +465,7 @@ eas build --platform all --profile production
 ```
 
 **Version Strategy:**
+
 - Patch (1.0.x): OTA updates
 - Minor (1.x.0): Store updates
 - Major (x.0.0): Store updates with marketing
@@ -415,16 +475,19 @@ eas build --platform all --profile production
 ## 📈 **Scaling Considerations**
 
 ### **At 100 Users**
+
 - Supabase Free Tier ✅
 - Railway $5/month ✅
 - No issues
 
 ### **At 1,000 Users**
+
 - Upgrade Supabase to Pro ($25/mo)
 - Backend might need $20/mo tier
 - Consider CDN for assets
 
 ### **At 10,000 Users**
+
 - Supabase Team plan
 - Dedicated backend server
 - Load balancing
@@ -432,6 +495,7 @@ eas build --platform all --profile production
 - Redis caching
 
 ### **At 100,000+ Users**
+
 - Enterprise infrastructure
 - Multi-region deployment
 - Database sharding
@@ -444,20 +508,23 @@ eas build --platform all --profile production
 ### **For MVP/Initial Launch:**
 
 1. **Mobile Apps:**
+
    - Use EAS Build free tier
    - Submit to both stores
    - Start with iOS first (faster review)
 
 2. **Backend:**
+
    - Deploy to Railway ($5/mo)
    - Use Emergent LLM key
    - Simple, cost-effective
 
 3. **Database:**
+
    - Supabase Free Tier
    - Already set up!
 
-**Total: ~$130 first year**
+**Total: \~$130 first year**
 
 ### **When You Hit 500+ Active Users:**
 
@@ -478,7 +545,7 @@ eas build --platform all --profile production
 ## 🛠️ **Tools & Services Summary**
 
 | Need | Recommended Service | Alternative |
-|------|-------------------|-------------|
+| --- | --- | --- |
 | Mobile Build | EAS Build | Fastlane + Xcode |
 | iOS Distribution | App Store | TestFlight |
 | Android Distribution | Google Play | APK direct |
@@ -495,30 +562,47 @@ eas build --platform all --profile production
 ## 📝 **Next Steps for Deployment**
 
 1. **Create accounts:**
+
    - [ ] Apple Developer ($99)
+
    - [ ] Google Play Console ($25)
+
    - [ ] Expo account (free)
+
    - [ ] Railway account (free)
 
 2. **Prepare assets:**
+
    - [ ] App icon (1024x1024)
+
    - [ ] Screenshots (multiple sizes)
+
    - [ ] Privacy policy
+
    - [ ] App description
 
 3. **Configure build:**
+
    - [ ] Update app.json with production settings
+
    - [ ] Set up signing credentials
+
    - [ ] Configure environment variables
 
 4. **Deploy backend:**
+
    - [ ] Choose hosting service
+
    - [ ] Deploy FastAPI server
+
    - [ ] Test AI insights endpoint
 
 5. **Build mobile apps:**
+
    - [ ] `eas build --platform all --profile production`
+
    - [ ] Download builds
+
    - [ ] Upload to stores
 
 6. **Launch! 🚀**

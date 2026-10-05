@@ -1,6 +1,6 @@
 """
-The one way the backend talks to the LLM gateway (emergentintegrations' LlmChat, keyed by
-EMERGENT_LLM_KEY). Every AI feature — insights and analyzers — goes through `generate_json`.
+The one way the backend talks to the LLM (Anthropic's Messages API, keyed by
+ANTHROPIC_API_KEY). Every AI feature — insights and analyzers — goes through `generate_json`.
 
 It never invents output: a missing key, a gateway error, unparseable JSON, or a response
 without the required fields raises, so callers can report failure instead of saving
@@ -13,16 +13,16 @@ import os
 import re
 from typing import Any, Dict, Iterable
 
-from emergentintegrations.llm.chat import LlmChat, UserMessage
+import anthropic
 
 logger = logging.getLogger(__name__)
 
-LLM_PROVIDER = os.getenv("LLM_PROVIDER", "openai")
-LLM_MODEL = os.getenv("LLM_MODEL", "gpt-5.1")
+ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001")
+MAX_TOKENS = int(os.getenv("ANTHROPIC_MAX_TOKENS", "4096"))
 
 
 class LLMUnavailable(Exception):
-    """The gateway isn't configured (no EMERGENT_LLM_KEY)."""
+    """The gateway isn't configured (no ANTHROPIC_API_KEY)."""
 
 
 class LLMError(Exception):
@@ -30,7 +30,7 @@ class LLMError(Exception):
 
 
 def llm_configured() -> bool:
-    return bool(os.getenv("EMERGENT_LLM_KEY"))
+    return bool(os.getenv("ANTHROPIC_API_KEY"))
 
 
 def parse_json_object(raw: str) -> Dict[str, Any]:
@@ -60,19 +60,23 @@ async def generate_json(
     *, system: str, prompt: str, session_id: str, required: Iterable[str] = ()
 ) -> Dict[str, Any]:
     """Send one prompt and return the parsed JSON object; raise if anything is off."""
-    api_key = os.getenv("EMERGENT_LLM_KEY")
+    api_key = os.getenv("ANTHROPIC_API_KEY")
     if not api_key:
-        raise LLMUnavailable("EMERGENT_LLM_KEY is not set")
+        raise LLMUnavailable("ANTHROPIC_API_KEY is not set")
 
-    chat = LlmChat(api_key=api_key, session_id=session_id, system_message=system).with_model(
-        LLM_PROVIDER, LLM_MODEL
-    )
+    client = anthropic.AsyncAnthropic(api_key=api_key)
     try:
-        raw = await chat.send_message(UserMessage(text=prompt))
+        message = await client.messages.create(
+            model=ANTHROPIC_MODEL,
+            max_tokens=MAX_TOKENS,
+            system=system,
+            messages=[{"role": "user", "content": prompt}],
+        )
     except Exception as e:  # gateway/network failure
         logger.error("LLM gateway error (%s): %s", session_id, e)
         raise LLMError(f"LLM gateway error: {e}")
 
+    raw = "".join(block.text for block in message.content if getattr(block, "type", None) == "text")
     data = parse_json_object(raw)
     missing = [key for key in required if data.get(key) in (None, "", [], {})]
     if missing:

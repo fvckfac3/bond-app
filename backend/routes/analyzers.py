@@ -19,7 +19,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from routes import deps
-from services.ai_usage import can_generate
+from services.ai_usage import ai_allowance, limit_message
 from services.analyzers import ANALYZERS, build_prompt, finalize, format_messages
 from services.llm import LLMUnavailable, generate_json, llm_configured
 
@@ -102,11 +102,9 @@ async def analyze(kind: str, request: AnalyzeRequest, user_id: str = Depends(dep
 
     if not llm_configured():
         raise HTTPException(status_code=503, detail="Analysis isn't available right now.")
-    if not can_generate(db, user_id):
-        raise HTTPException(
-            status_code=402,
-            detail="You've used this month's free AI analyses. Premium includes unlimited analyses.",
-        )
+    allowance = ai_allowance(db, user_id)
+    if allowance["remaining"] == 0:
+        raise HTTPException(status_code=402, detail=limit_message(allowance["tier"]))
 
     system, prompt, required = build_prompt(spec, transcript, note)
     try:

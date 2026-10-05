@@ -14,7 +14,7 @@ from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
-from emergentintegrations.llm.chat import LlmChat
+from anthropic import AsyncAnthropic
 from fake_db import InMemoryDB
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -93,9 +93,9 @@ def world(monkeypatch):
             created_at=(now - timedelta(hours=8 - i)).isoformat(),
         )
     monkeypatch.setattr(deps, "get_supabase", lambda: db)
-    monkeypatch.setenv("EMERGENT_LLM_KEY", "test-key")
-    LlmChat.reset()
-    LlmChat.response = reply()
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    AsyncAnthropic.reset()
+    AsyncAnthropic.response = reply()
     app = FastAPI()
     app.include_router(analyzers_module.router)
     return SimpleNamespace(db=db, client=TestClient(app))
@@ -125,7 +125,7 @@ class TestAccess:
         assert run(world, user="stranger").status_code == 403
         assert run(world, user="carl", couple_id=PENDING).status_code == 403
         assert run(world, couple_id="not-a-uuid").status_code == 403
-        assert LlmChat.prompts == []
+        assert AsyncAnthropic.prompts == []
 
     def test_unknown_and_voice_analyzers_are_not_offered(self, world):
         assert run(world, kind="voice").status_code == 404
@@ -147,7 +147,7 @@ def test_each_analyzer_stores_a_couple_scoped_derived_result(world, kind):
 class TestPrivacy:
     def test_in_app_messages_are_loaded_server_side_and_anonymized(self, world):
         run(world)
-        prompt = LlmChat.prompts[-1]
+        prompt = AsyncAnthropic.prompts[-1]
         assert "Partner A: message 0" in prompt and "Partner B: message 1" in prompt
         assert ALICE not in prompt and ALEX not in prompt
 
@@ -157,7 +157,7 @@ class TestPrivacy:
         assert all(SECRET not in value for value in stored_values(world.db))
 
     def test_quotes_of_the_input_are_removed(self, world):
-        LlmChat.response = reply(
+        AsyncAnthropic.response = reply(
             summary=f'Partner A said "{SECRET}" and Partner B listened.',
             strengths=["Partner A said I felt left out when plans changed without asking me"],
         )
@@ -168,7 +168,7 @@ class TestPrivacy:
 
     def test_system_prompt_carries_the_safety_rules(self, world):
         run(world)
-        system = LlmChat.system_messages[-1]
+        system = AsyncAnthropic.system_messages[-1]
         assert "Never take sides" in system and "Partner A" in system and "never quote" in system
 
 
@@ -192,14 +192,14 @@ class TestInputAndFailures:
         assert body["result"]["safety_note"] == safety.SAFETY_NOTE
 
     def test_model_failure_is_reported_and_not_stored(self, world):
-        LlmChat.response = "not json"
+        AsyncAnthropic.response = "not json"
         assert run(world).status_code == 502
-        LlmChat.response = reply(strengths=[])
+        AsyncAnthropic.response = reply(strengths=[])
         assert run(world).status_code == 502
         assert list(stored_values(world.db)) == []
 
     def test_unconfigured_llm(self, world, monkeypatch):
-        monkeypatch.delenv("EMERGENT_LLM_KEY")
+        monkeypatch.delenv("ANTHROPIC_API_KEY")
         assert run(world).status_code == 503
 
     def test_free_tier_counts_analyzer_runs(self, world):

@@ -1,19 +1,21 @@
-from fastapi import APIRouter, HTTPException, Request, Header
-from pydantic import BaseModel, Field
-from typing import Optional, Dict, List, Any
+import logging
+import os
 from datetime import datetime, timezone
-from emergentintegrations.payments.stripe.checkout import (
-    StripeCheckout,
+from typing import Any, Dict, List, Optional
+
+import stripe
+from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel, Field
+from supabase import Client, create_client
+
+from routes import deps
+from services.ai_usage import FREE_AI_INSIGHTS_PER_MONTH, insights_used_this_month
+from services.stripe_checkout import (
+    CheckoutSessionRequest,
     CheckoutSessionResponse,
     CheckoutStatusResponse,
-    CheckoutSessionRequest,
+    StripeCheckout,
 )
-import os
-from supabase import create_client, Client
-import stripe
-import logging
-
-from services.ai_usage import FREE_AI_INSIGHTS_PER_MONTH, insights_used_this_month
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +70,10 @@ class CheckoutRequest(BaseModel):
     origin_url: str = Field(..., description="Frontend origin URL")
 
 
+class PortalRequest(BaseModel):
+    origin_url: str = Field(..., description="Frontend origin URL")
+
+
 class PackageInfo(BaseModel):
     id: str
     name: str
@@ -100,83 +106,6 @@ def _get_stripe_client():
     return stripe
 
 
-async def create_checkout_session(user_id: str, price_id: str, origin_url: str) -> Dict[str, Any]:
-    """
-    Create a Stripe Checkout session for subscription purchase.
-
-    Args:
-        user_id: The user's ID in our system
-        price_id: Stripe Price ID for the subscription tier
-        origin_url: Frontend origin for building success/cancel URLs
-
-    Returns:
-        Dict with 'url' (checkout URL) and 'session_id'
-    """
-    stripe_lib = stripe
-    stripe_lib.api_key = STRIPE_API_KEY
-
-    # Determine package from price_id or look up
-    package_id = _get_package_id_from_price(price_id)
-    package = SUBSCRIPTION_PACKAGES.get(package_id, {})
-
-    success_url = f"{origin_url}/subscription/success?session_id={{CHECKOUT_SESSION_ID}}"
-    cancel_url = f"{origin_url}/subscription/cancel"
-
-    metadata = {
-        "user_id": user_id,
-        "package_id": package_id or "unknown",
-        "price_id": price_id,
-    }
-
-    try:
-        session = stripe_lib.checkout.Session.create(
-            payment_method_types=["card"],
-            mode="subscription",
-            customer_email=None,  # Let Stripe use existing customer or prompt
-            line_items=[
-                {
-                    "price": price_id,
-                    "quantity": 1,
-                }
-            ],
-            success_url=success_url,
-            cancel_url=cancel_url,
-            metadata=metadata,
-            allow_promotion_codes=True,
-            subscription_data={
-                "trial_period_days": package.get("trial_days", 7),
-                "metadata": metadata,
-            },
-        )
-
-        # Create pending transaction
-        transaction = {
-            "session_id": session.id,
-            "user_id": user_id,
-            "package_id": package_id or "unknown",
-            "package_name": package.get("name"),
-            "amount": package.get("amount", 0),
-            "currency": package.get("currency", "usd"),
-            "interval": package.get("interval", "month"),
-            "trial_days": package.get("trial_days", 7),
-            "payment_status": "pending",
-            "status": "initiated",
-            "metadata": metadata,
-            "created_at": datetime.now(timezone.utc).isoformat(),
-            "updated_at": datetime.now(timezone.utc).isoformat(),
-        }
-
-        supabase.table("payment_transactions").insert(transaction).execute()
-
-        logger.info(f"Created checkout session {session.id} for user {user_id}")
-
-        return {"url": session.url, "session_id": session.id}
-
-    except Exception as e:
-        logger.error(f"Failed to create checkout session: {e}")
-        raise
-
-
 async def create_customer_portal_session(
     stripe_customer_id: str, origin_url: str
 ) -> Dict[str, Any]:
@@ -207,92 +136,6 @@ async def create_customer_portal_session(
         raise
 
 
-async def get_subscription_status(user_id: str) -> Dict[str, Any]:
-    """
-    Get current subscription state for a user.
-
-    Args:
-        user_id: The user's ID in our system
-
-    Returns:
-        Dict with subscription details including:
-        - is_premium: bool
-        - status: str (active, past_due, canceled, none)
-        - plan_type: str or None
-        - current_period_end: str or None
-        - is_trial: bool
-        - trial_end: str or None
-        - stripe_customer_id: str or None
-    """
-    # Get active subscription from Supabase
-    response = supabase.table("subscriptions").select("*").eq("user_id", user_id).execute()
-
-    if not response.data:
-        return {
-            "is_premium": False,
-            "status": "none",
-            "plan_type": None,
-            "current_period_end": None,
-            "is_trial": False,
-            "trial_end": None,
-            "stripe_customer_id": None,
-        }
-
-    sub = response.data[0]
-    now = datetime.now(timezone.utc)
-
-    # Check if expired
-    current_period_end = sub.get("current_period_end")
-    is_expired = False
-    if current_period_end:
-        try:
-            end_date = datetime.fromisoformat(current_period_end.replace("Z", "+00:00"))
-            is_expired = now > end_date
-        except (ValueError, AttributeError):
-            is_expired = False
-
-    # Check if in trial
-    trial_end = sub.get("trial_end")
-    is_trial = False
-    if trial_end:
-        try:
-            trial_end_date = datetime.fromisoformat(trial_end.replace("Z", "+00:00"))
-            is_trial = now < trial_end_date
-        except (ValueError, AttributeError):
-            is_trial = False
-
-    # Determine effective status
-    status = sub.get("status", "unknown")
-    if is_expired and status not in ("canceled", "past_due"):
-        status = "expired"
-
-    is_premium = status in ("active", "trialing") and not is_expired
-
-    return {
-        "is_premium": is_premium,
-        "status": status,
-        "plan_type": sub.get("plan_type"),
-        "current_period_end": current_period_end,
-        "is_trial": is_trial,
-        "trial_end": trial_end,
-        "stripe_customer_id": sub.get("stripe_customer_id"),
-        "stripe_subscription_id": sub.get("stripe_subscription_id"),
-        "created_at": sub.get("created_at"),
-        "updated_at": sub.get("updated_at"),
-    }
-
-
-def _get_package_id_from_price(price_id: str) -> Optional[str]:
-    """Look up package ID from Stripe price ID using metadata."""
-    # In production you'd store price->package mapping in env or DB
-    # For now, we can check against our known prices
-    for pkg_id, pkg in SUBSCRIPTION_PACKAGES.items():
-        # You might store Stripe price IDs in the package config
-        # For now return None and let caller handle
-        pass
-    return None  # Caller should pass explicit package_id when known
-
-
 # Endpoint: Get available subscription packages
 @router.get("/subscription/packages")
 async def get_packages() -> List[PackageInfo]:
@@ -314,7 +157,7 @@ async def get_packages() -> List[PackageInfo]:
 # Endpoint: Create checkout session
 @router.post("/subscription/checkout")
 async def create_checkout_session(
-    request: CheckoutRequest, user_id: Optional[str] = Header(None, alias="X-User-ID")
+    request: CheckoutRequest, user_id: str = Depends(deps.current_user_id)
 ):
     """Create a Stripe checkout session for subscription"""
 
@@ -338,7 +181,7 @@ async def create_checkout_session(
         "package_name": package["name"],
         "interval": package["interval"],
         "trial_days": str(package["trial_days"]),
-        "user_id": user_id or "anonymous",
+        "user_id": user_id,
     }
 
     try:
@@ -361,7 +204,7 @@ async def create_checkout_session(
         # Create PENDING transaction record in Supabase
         transaction = {
             "session_id": session.session_id,
-            "user_id": user_id or "anonymous",
+            "user_id": user_id,
             "package_id": request.package_id,
             "package_name": package["name"],
             "amount": amount,
@@ -515,13 +358,47 @@ def _couple_member_ids(user_id: str) -> List[str]:
     return ids
 
 
+# Endpoint: Open the Stripe customer portal (manage/cancel subscription)
+@router.post("/subscription/portal")
+async def open_customer_portal(
+    request: PortalRequest, user_id: str = Depends(deps.current_user_id)
+):
+    """Create a Stripe Customer Portal session for the couple's active subscription."""
+
+    member_ids = _couple_member_ids(user_id)
+    response = (
+        supabase.table("subscriptions")
+        .select("stripe_customer_id, status")
+        .in_("user_id", member_ids)
+        .eq("status", "active")
+        .execute()
+    )
+    stripe_customer_id = next(
+        (row["stripe_customer_id"] for row in response.data or [] if row.get("stripe_customer_id")),
+        None,
+    )
+    if not stripe_customer_id:
+        raise HTTPException(status_code=404, detail="No active Stripe customer found")
+
+    try:
+        return await create_customer_portal_session(stripe_customer_id, request.origin_url)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to open customer portal: {str(e)}")
+
+
 # Endpoint: Get user subscription status
 @router.get("/subscription/user/{user_id}")
-async def get_user_subscription(user_id: str) -> SubscriptionStatus:
+async def get_user_subscription(
+    user_id: str, caller_id: str = Depends(deps.current_user_id)
+) -> SubscriptionStatus:
     """Get the couple's subscription status (Premium is per couple) and the user's usage limits"""
 
     try:
         member_ids = _couple_member_ids(user_id)
+        if caller_id not in member_ids:
+            raise HTTPException(
+                status_code=403, detail="Not authorized to view this user's subscription"
+            )
         response = (
             supabase.table("subscriptions")
             .select("*")
@@ -556,6 +433,8 @@ async def get_user_subscription(user_id: str) -> SubscriptionStatus:
 
         return SubscriptionStatus(is_premium=False, usage=await get_user_usage(user_id))
 
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to get subscription: {str(e)}")
 
@@ -565,6 +444,7 @@ async def get_user_usage(user_id: str) -> Dict:
     """Calculate user's monthly usage for free tier limits"""
 
     from datetime import datetime, timezone
+
     from dateutil.relativedelta import relativedelta
 
     now = datetime.now(timezone.utc)
@@ -585,7 +465,10 @@ async def get_user_usage(user_id: str) -> Dict:
     insights_count = insights_used_this_month(supabase, user_id)
 
     # Free tier limits
-    FREE_TIER_LIMITS = {"assessments_per_month": 1, "ai_insights_per_month": FREE_AI_INSIGHTS_PER_MONTH}
+    FREE_TIER_LIMITS = {
+        "assessments_per_month": 1,
+        "ai_insights_per_month": FREE_AI_INSIGHTS_PER_MONTH,
+    }
 
     return {
         "assessments_used": assessments_count,

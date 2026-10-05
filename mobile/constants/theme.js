@@ -1,6 +1,8 @@
 // BOND App Theme - Refined with Design System
 // Built following: animation-patterns, shadows, polish, mobile-design, ui-ux-patterns
 
+import { Easing } from 'react-native-reanimated';
+
 export const colors = {
   // Core palette - warm romantic theme
   primary: '#3D1A4F',      // Deep Plum - Headings, primary buttons
@@ -174,13 +176,15 @@ export const motion = {
 };
 
 // Easing curves - organic, not bouncy
+// Reanimated/Moti `transition.easing` needs an actual Easing function, not a CSS string —
+// these mirror the cubic-bezier curves the names describe.
 export const easing = {
   // Smooth deceleration - enter animations
-  easeOut: 'cubic-bezier(0.25, 1, 0.5, 1)',
+  easeOut: Easing.bezier(0.25, 1, 0.5, 1),
   // Confident, decisive
-  easeOutExpo: 'cubic-bezier(0.16, 1, 0.3, 1)',
+  easeOutExpo: Easing.bezier(0.16, 1, 0.3, 1),
   // Quick snap
-  easeOutQuad: 'cubic-bezier(0.25, 1, 0.5, 1)',
+  easeOutQuad: Easing.bezier(0.25, 1, 0.5, 1),
 };
 
 // Touch targets - mobile accessibility minimums

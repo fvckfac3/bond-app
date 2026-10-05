@@ -4,7 +4,7 @@ import { colors, spacing, borderRadius } from '../../constants/theme';
 
 interface GradientCardProps {
   children: React.ReactNode;
-  colors?: string[];
+  colors?: [string, string, ...string[]];
   style?: ViewStyle;
 }
 

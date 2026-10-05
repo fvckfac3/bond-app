@@ -3,15 +3,15 @@ Stripe Webhook Handler for BOND App
 Handles subscription lifecycle events from Stripe
 """
 
-from fastapi import APIRouter, Request, HTTPException
-from pydantic import BaseModel
-from typing import Optional, Dict, Any
-from datetime import datetime, timezone
 import logging
 import os
+from datetime import datetime, timezone
+from typing import Any, Dict, Optional
 
 import stripe
-from supabase import create_client, Client
+from fastapi import APIRouter, HTTPException, Request
+from pydantic import BaseModel
+from supabase import Client, create_client
 
 router = APIRouter(prefix="/api/webhooks", tags=["webhooks"])
 

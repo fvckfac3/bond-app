@@ -1,20 +1,36 @@
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
 import pytest
 from conftest import FakeResult
-from emergentintegrations.payments.stripe.checkout import (
-    CheckoutSessionResponse,
-    CheckoutStatusResponse,
-)
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from routes import deps
 from routes import payments as payments_module
+from services.stripe_checkout import (
+    CheckoutSessionResponse,
+    CheckoutStatusResponse,
+)
+
+
+def auth_header(user_id: str) -> dict:
+    """A bearer token that the fake auth backend below resolves straight to `user_id`."""
+    return {"Authorization": f"Bearer token-{user_id}"}
 
 
 @pytest.fixture
 def client(fake_supabase, monkeypatch):
     monkeypatch.setattr(payments_module, "supabase", fake_supabase)
+
+    def get_user(token: str):
+        if not token.startswith("token-"):
+            raise Exception("bad jwt")
+        return SimpleNamespace(user=SimpleNamespace(id=token[len("token-") :]))
+
+    monkeypatch.setattr(
+        deps, "get_supabase", lambda: SimpleNamespace(auth=SimpleNamespace(get_user=get_user))
+    )
     app = FastAPI()
     app.include_router(payments_module.router)
     return TestClient(app)
@@ -32,10 +48,18 @@ class TestGetPackages:
 
 
 class TestCreateCheckoutSession:
+    def test_requires_authentication(self, client):
+        resp = client.post(
+            "/api/subscription/checkout",
+            json={"package_id": "premium_monthly", "origin_url": "https://app.example.com"},
+        )
+        assert resp.status_code == 401
+
     def test_rejects_unknown_package_id(self, client):
         resp = client.post(
             "/api/subscription/checkout",
             json={"package_id": "not_a_real_package", "origin_url": "https://app.example.com"},
+            headers=auth_header("user-a"),
         )
         assert resp.status_code == 400
 
@@ -65,6 +89,7 @@ class TestCreateCheckoutSession:
                 "origin_url": "https://app.example.com",
                 "amount": 0.01,  # tamper attempt — ignored, not a CheckoutRequest field
             },
+            headers=auth_header("user-a"),
         )
 
         assert resp.status_code == 200
@@ -75,6 +100,47 @@ class TestCreateCheckoutSession:
         assert len(inserted) == 1
         assert inserted[0].payload["amount"] == 14.99
         assert inserted[0].payload["payment_status"] == "pending"
+        assert inserted[0].payload["user_id"] == "user-a"
+
+
+class TestCustomerPortal:
+    def test_requires_authentication(self, client):
+        resp = client.post(
+            "/api/subscription/portal", json={"origin_url": "https://app.example.com"}
+        )
+        assert resp.status_code == 401
+
+    def test_404_when_no_active_stripe_customer(self, client, fake_supabase):
+        fake_supabase.table_results["subscriptions"] = FakeResult(data=[])
+        resp = client.post(
+            "/api/subscription/portal",
+            json={"origin_url": "https://app.example.com"},
+            headers=auth_header("user-a"),
+        )
+        assert resp.status_code == 404
+
+    def test_opens_portal_for_the_couples_stripe_customer(self, client, fake_supabase, monkeypatch):
+        fake_supabase.table_results["couple_units"] = FakeResult(
+            data=[{"user1_id": "user-a", "user2_id": "user-b"}]
+        )
+        fake_supabase.table_results["subscriptions"] = FakeResult(
+            data=[{"stripe_customer_id": "cus_123", "status": "active"}]
+        )
+
+        async def fake_portal_session(stripe_customer_id, origin_url):
+            assert stripe_customer_id == "cus_123"
+            assert origin_url == "https://app.example.com"
+            return {"url": "https://billing.stripe.test/session"}
+
+        monkeypatch.setattr(payments_module, "create_customer_portal_session", fake_portal_session)
+
+        resp = client.post(
+            "/api/subscription/portal",
+            json={"origin_url": "https://app.example.com"},
+            headers=auth_header("user-a"),
+        )
+        assert resp.status_code == 200
+        assert resp.json()["url"] == "https://billing.stripe.test/session"
 
 
 class TestCheckoutStatusPolling:
@@ -156,12 +222,25 @@ class TestCheckoutStatusPolling:
 
 
 class TestUserSubscriptionStatus:
+    def test_requires_authentication(self, client):
+        resp = client.get("/api/subscription/user/user-without-sub")
+        assert resp.status_code == 401
+
+    def test_forbidden_for_a_user_outside_the_couple(self, client, fake_supabase):
+        """A client-supplied X-User-ID used to be enough to read anyone's
+        subscription; now the caller must be the user or their active partner."""
+        fake_supabase.table_results["couple_units"] = FakeResult(data=[])
+        resp = client.get("/api/subscription/user/user-with-sub", headers=auth_header("stranger"))
+        assert resp.status_code == 403
+
     def test_free_tier_when_no_active_subscription(self, client, fake_supabase):
         fake_supabase.table_results["subscriptions"] = FakeResult(data=[])
         fake_supabase.table_results["assessment_sessions"] = FakeResult(data=[], count=0)
         fake_supabase.table_results["couple_results"] = FakeResult(data=[], count=0)
 
-        resp = client.get("/api/subscription/user/user-without-sub")
+        resp = client.get(
+            "/api/subscription/user/user-without-sub", headers=auth_header("user-without-sub")
+        )
         assert resp.status_code == 200
         body = resp.json()
         assert body["is_premium"] is False
@@ -181,7 +260,9 @@ class TestUserSubscriptionStatus:
             ]
         )
 
-        resp = client.get("/api/subscription/user/user-with-sub")
+        resp = client.get(
+            "/api/subscription/user/user-with-sub", headers=auth_header("user-with-sub")
+        )
         assert resp.status_code == 200
         body = resp.json()
         assert body["is_premium"] is True
@@ -208,12 +289,37 @@ class TestUserSubscriptionStatus:
             ]
         )
 
-        resp = client.get("/api/subscription/user/user-a")
+        resp = client.get("/api/subscription/user/user-a", headers=auth_header("user-a"))
 
         assert resp.status_code == 200
         assert resp.json()["is_premium"] is True
         (sub_query,) = fake_supabase.calls_for("subscriptions", op="select")
         assert ("in", "user_id", ["user-a", "user-b"]) in sub_query.filters
+
+    def test_partner_can_also_read_the_couples_subscription(self, client, fake_supabase):
+        """The caller doesn't have to be the path user_id — their active
+        partner is authorized too, since Premium is shared."""
+        expires_at = (datetime.now(timezone.utc) + timedelta(days=20)).isoformat()
+        fake_supabase.table_results["couple_units"] = FakeResult(
+            data=[{"user1_id": "user-a", "user2_id": "user-b"}]
+        )
+        fake_supabase.table_results["subscriptions"] = FakeResult(
+            data=[
+                {
+                    "id": 5,
+                    "user_id": "user-b",
+                    "package_id": "premium_monthly",
+                    "status": "active",
+                    "expires_at": expires_at,
+                    "trial_ends_at": None,
+                }
+            ]
+        )
+
+        resp = client.get("/api/subscription/user/user-a", headers=auth_header("user-b"))
+
+        assert resp.status_code == 200
+        assert resp.json()["is_premium"] is True
 
     def test_expired_partner_subscription_is_marked_and_not_premium(self, client, fake_supabase):
         expired = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
@@ -226,17 +332,25 @@ class TestUserSubscriptionStatus:
         fake_supabase.table_results["assessment_sessions"] = FakeResult(data=[], count=0)
         fake_supabase.table_results["couple_results"] = FakeResult(data=[], count=0)
 
-        resp = client.get("/api/subscription/user/user-a")
+        resp = client.get("/api/subscription/user/user-a", headers=auth_header("user-a"))
 
         assert resp.json()["is_premium"] is False
         assert len(fake_supabase.calls_for("subscriptions", op="update")) == 1
 
     def test_free_tier_usage_reflects_assessment_and_insight_counts(self, client, fake_supabase):
+        # couple_results is keyed by couple_unit_id, so a couple_results count only
+        # exists for a user who's in an active couple.
+        fake_supabase.table_results["couple_units"] = FakeResult(
+            data=[{"id": 42, "user1_id": "user-partial-usage", "user2_id": "user-partner"}]
+        )
         fake_supabase.table_results["subscriptions"] = FakeResult(data=[])
         fake_supabase.table_results["assessment_sessions"] = FakeResult(data=[], count=1)
         fake_supabase.table_results["couple_results"] = FakeResult(data=[], count=3)
 
-        resp = client.get("/api/subscription/user/user-partial-usage")
+        resp = client.get(
+            "/api/subscription/user/user-partial-usage",
+            headers=auth_header("user-partial-usage"),
+        )
         assert resp.status_code == 200
         usage = resp.json()["usage"]
         assert usage["assessments_used"] == 1

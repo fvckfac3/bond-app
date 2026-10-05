@@ -11,10 +11,9 @@ export interface SubscriptionPackage {
   id: string;
   name: string;
   description: string;
-  amount: number; // in cents
+  amount: number; // in dollars — PaywallModal renders this directly with no cents conversion
   interval: 'month' | 'year';
   features: string[];
-  stripePriceId: string;
 }
 
 export interface SubscriptionStatus {
@@ -27,15 +26,15 @@ export interface SubscriptionStatus {
   coveredByPartner: boolean;
 }
 
-// Production Stripe Price IDs - Replace with your actual Stripe price IDs
+// Display copy only — the real, charged price is server-side in
+// backend/routes/payments.py's SUBSCRIPTION_PACKAGES (checkout never trusts the client).
 export const SUBSCRIPTION_PACKAGES: SubscriptionPackage[] = [
   {
     id: 'premium_monthly',
     name: 'Premium Monthly',
     description: 'Full access to all features',
-    amount: 1299, // $12.99
+    amount: 14.99,
     interval: 'month',
-    stripePriceId: process.env.EXPO_PUBLIC_STRIPE_MONTHLY_PRICE_ID || 'price_monthly_placeholder',
     features: [
       'Unlimited assessments',
       'Full activity library',
@@ -49,13 +48,12 @@ export const SUBSCRIPTION_PACKAGES: SubscriptionPackage[] = [
   {
     id: 'premium_annual',
     name: 'Premium Annual',
-    description: 'Best value - save 36%',
-    amount: 9900, // $99.00
+    description: 'Best value - save 44%',
+    amount: 99.99,
     interval: 'year',
-    stripePriceId: process.env.EXPO_PUBLIC_STRIPE_ANNUAL_PRICE_ID || 'price_annual_placeholder',
     features: [
       'Everything in Monthly',
-      'Save 36% vs monthly',
+      'Save 44% vs monthly',
       'Exclusive annual-only features',
       'Priority support',
     ],
@@ -305,30 +303,30 @@ class SubscriptionService {
     };
   }
 
+  /** Backend routes identify the caller from the Supabase session JWT (backend/routes/deps.py). */
+  private async authHeaders(): Promise<Record<string, string>> {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.access_token) throw new Error('Not signed in');
+    return { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` };
+  }
+
   /**
-   * Start Stripe Checkout session
+   * Start Stripe Checkout session via Bond's own backend (routes/payments.py).
    */
   async createCheckoutSession(packageId: string): Promise<{ url: string } | null> {
     if (!this.userId) return null;
 
     try {
-      const selectedPackage = SUBSCRIPTION_PACKAGES.find(p => p.id === packageId);
-      if (!selectedPackage) return null;
+      const backendUrl = process.env.EXPO_PUBLIC_BACKEND_URL;
+      if (!backendUrl) {
+        console.error('EXPO_PUBLIC_BACKEND_URL is not configured; set it in .env before building.');
+        return null;
+      }
 
-      const { data: userData } = await supabase.auth.getUser();
-      if (!userData?.user?.email) return null;
-
-      const response = await fetch('https://senet.zo.space/api/stripe-checkout', {
+      const response = await fetch(`${backendUrl}/api/subscription/checkout`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          priceId: selectedPackage.stripePriceId,
-          userId: this.userId,
-          userEmail: userData.user.email,
-          packageId,
-          successUrl: 'bond://subscription/success',
-          cancelUrl: 'bond://subscription/cancel',
-        }),
+        headers: await this.authHeaders(),
+        body: JSON.stringify({ package_id: packageId, origin_url: 'bond:/' }),
       });
 
       if (!response.ok) {
@@ -336,9 +334,9 @@ class SubscriptionService {
         return null;
       }
 
-      const { url, error } = await response.json();
-      if (error || !url) {
-        console.error('Checkout error:', error);
+      const { url } = await response.json();
+      if (!url) {
+        console.error('Checkout error: no url in response');
         return null;
       }
 
@@ -350,16 +348,22 @@ class SubscriptionService {
   }
 
   /**
-   * Open Stripe Customer Portal for managing subscription
+   * Open the Stripe Customer Portal (manage/cancel) via Bond's own backend.
    */
   async openCustomerPortal(): Promise<boolean> {
     if (!this.userId) return false;
 
     try {
-      const response = await fetch('https://senet.zo.space/api/stripe-portal', {
+      const backendUrl = process.env.EXPO_PUBLIC_BACKEND_URL;
+      if (!backendUrl) {
+        console.error('EXPO_PUBLIC_BACKEND_URL is not configured; set it in .env before building.');
+        return false;
+      }
+
+      const response = await fetch(`${backendUrl}/api/subscription/portal`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: this.userId }),
+        headers: await this.authHeaders(),
+        body: JSON.stringify({ origin_url: 'bond:/' }),
       });
 
       if (!response.ok) return false;

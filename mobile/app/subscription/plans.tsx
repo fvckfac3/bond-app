@@ -42,23 +42,19 @@ export default function SubscriptionPlansScreen() {
               <View style={styles.statusRow}>
                 <Text style={styles.statusLabel}>Plan:</Text>
                 <Text style={styles.statusValue}>
-                  {subscription?.plan === 'premium_annual' ? 'Annual' : 'Monthly'}
+                  {subscription?.plan === 'annual' ? 'Annual' : 'Monthly'}
                 </Text>
               </View>
-              {subscription?.is_trial && (
+              {subscription?.currentPeriodEnd && (
                 <View style={styles.statusRow}>
-                  <Text style={styles.statusLabel}>Trial ends:</Text>
+                  <Text style={styles.statusLabel}>
+                    {subscription.isTrial ? 'Trial ends:' : subscription.cancelAtPeriodEnd ? 'Ends:' : 'Renews:'}
+                  </Text>
                   <Text style={styles.statusValue}>
-                    {new Date(subscription.trial_ends_at!).toLocaleDateString()}
+                    {subscription.currentPeriodEnd.toLocaleDateString()}
                   </Text>
                 </View>
               )}
-              <View style={styles.statusRow}>
-                <Text style={styles.statusLabel}>Renews:</Text>
-                <Text style={styles.statusValue}>
-                  {new Date(subscription?.expires_at!).toLocaleDateString()}
-                </Text>
-              </View>
             </FadeInView>
 
             <ScaleButton onPress={() => router.back()}>

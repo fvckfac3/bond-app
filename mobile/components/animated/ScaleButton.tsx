@@ -2,7 +2,15 @@
 // Built following: animation-patterns, polish, mobile-design, ui-ux-patterns
 // Purposeful press feedback with accessibility
 
-import { StyleProp, ViewStyle, TouchableOpacity, View, ActivityIndicator } from 'react-native';
+import {
+  StyleProp,
+  ViewStyle,
+  TouchableOpacity,
+  View,
+  ActivityIndicator,
+  StyleSheet,
+  DimensionValue,
+} from 'react-native';
 import { MotiView } from 'moti';
 import { useState } from 'react';
 import { colors, spacing, borderRadius, shadows, motion, easing, touchTargets } from '../../constants/theme';
@@ -47,6 +55,14 @@ const variantStyles = {
     borderColor: 'transparent',
   },
 };
+
+const styles = StyleSheet.create({
+  buttonBase: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+});
 
 export default function ScaleButton({
   children,
@@ -158,13 +174,18 @@ export function PulseView({ children, style, duration = 1200 }: PulseViewProps) 
 
 // Shimmer effect for skeleton loaders - smooth, not harsh
 interface ShimmerViewProps {
-  width: number | string;
+  width: DimensionValue;
   height: number;
   borderRadius?: number;
   style?: StyleProp<ViewStyle>;
 }
 
-export function ShimmerView({ width, height, borderRadius = borderRadius.sm, style }: ShimmerViewProps) {
+export function ShimmerView({
+  width,
+  height,
+  borderRadius: radius = borderRadius.sm,
+  style,
+}: ShimmerViewProps) {
   return (
     <MotiView
       from={{ opacity: 0.4 }}
@@ -179,7 +200,7 @@ export function ShimmerView({ width, height, borderRadius = borderRadius.sm, sty
         {
           width,
           height,
-          borderRadius,
+          borderRadius: radius,
           backgroundColor: colors.lightGray,
         },
         style,

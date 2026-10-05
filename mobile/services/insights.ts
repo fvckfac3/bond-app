@@ -87,4 +87,10 @@ export const requestIndividualInsight = (sessionId: string) =>
 export const requestCoupleInsight = (coupleResultId: string) =>
   requestInsight<CoupleInsight>(`/api/insights/couple/${coupleResultId}`);
 
+export const requestOnboardingIndividualInsight = (onboardingId: string) =>
+  requestInsight<IndividualInsight>(`/api/insights/onboarding-individual/${onboardingId}`);
+
+export const requestOnboardingCoupleInsight = (coupleUnitId: string) =>
+  requestInsight<CoupleInsight>(`/api/insights/onboarding-couple/${coupleUnitId}`);
+
 export const requestRelationshipSummary = () => requestInsight<RelationshipSummary>('/api/insights/summary');
